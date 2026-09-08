@@ -353,7 +353,7 @@ export default function HomePresetsPage() {
                   </div>
                   );
                 })}
-                {items.length === 0 && <p className="text-sm text-faint">No collections in this preset yet.</p>}
+                {items.length === 0 && <p className="text-sm text-faint">No widgets in this preset yet.</p>}
               </div>
 
               <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
