@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
-import type { Collection } from '../../types';
+import { WidgetGrid, TAB_FLAG, type WidgetTab } from '../../components/catalog/WidgetGrid';
+import type { Collection, Folder } from '../../types';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,12 +73,36 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function HomePresetsPage() {
+  const navigate = useNavigate();
   const [presets, setPresets] = useState<HomePreset[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<HomePresetItem[]>([]);
   const [addCollectionId, setAddCollectionId] = useState('');
   const [loading, setLoading] = useState(true);
+  // "Your Widgets" grid (Fix 8) is the primary view of this page — "Manage
+  // Presets" (picking which widgets go into a curated Signature/Arabic/…
+  // layout, Fix 3's scope) is a distinct, secondary concern that stays
+  // reachable via the toggle rather than disappearing.
+  const [view, setView] = useState<'widgets' | 'presets'>('widgets');
+  const [widgetTab, setWidgetTab] = useState<WidgetTab>('home');
+
+  function openWidget(c: Collection) {
+    navigate(`/admin/catalog?collection=${c.id}`);
+  }
+
+  async function addWidget() {
+    const name = prompt('Widget name')?.trim();
+    if (!name) return;
+    const { ios, mac } = TAB_FLAG[widgetTab];
+    const { data, error } = await supabase.from('collections').insert({
+      name, view_mode: 'FOLLOW_LAYOUT', sort_order: collections.length,
+      status: 'draft', [ios]: true, [mac]: true,
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    navigate(`/admin/catalog?collection=${(data as Collection).id}`);
+  }
 
   const selected = presets.find((p) => p.id === selectedId) ?? null;
   const collectionName = (id: string) => collections.find((c) => c.id === id)?.name ?? id;
@@ -102,9 +128,14 @@ export default function HomePresetsPage() {
         loadPresets(),
         supabase
           .from('collections')
-          .select('id,name')
-          .order('name')
+          .select('*')
+          .order('sort_order')
           .then(({ data }) => setCollections((data as Collection[]) ?? [])),
+        supabase
+          .from('folders')
+          .select('*')
+          .order('sort_order')
+          .then(({ data }) => setFolders((data as Folder[]) ?? [])),
       ]);
       setLoading(false);
     })();
@@ -214,12 +245,56 @@ export default function HomePresetsPage() {
         <div>
           <h1 className="text-xl font-semibold text-text">Widgets</h1>
           <p className="mt-1 text-sm text-muted">
-            Curated home layouts for Premium/Friends & Family accounts. Only <span className="text-accent">active</span> presets show up in the app.
+            {view === 'widgets'
+              ? 'Every Home/Movies/Series widget — build and publish them here.'
+              : <>Curated home layouts for Premium/Friends & Family accounts. Only <span className="text-accent">active</span> presets show up in the app.</>}
           </p>
         </div>
-        <Button onClick={createPreset}>+ New Preset</Button>
+        {view === 'presets' && <Button onClick={createPreset}>+ New Preset</Button>}
       </div>
 
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
+          {(['widgets', 'presets'] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
+                v === view ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
+              }`}
+            >
+              {v === 'widgets' ? 'Your Widgets' : 'Manage Presets'}
+            </button>
+          ))}
+        </div>
+        {view === 'widgets' && (
+          <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
+            {(['home', 'movies', 'series'] as WidgetTab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setWidgetTab(t)}
+                className={`px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
+                  t === widgetTab ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {view === 'widgets' && (
+        <WidgetGrid
+          collections={collections}
+          folders={folders}
+          activeTab={widgetTab}
+          onSelectCollection={openWidget}
+          onAddWidget={addWidget}
+        />
+      )}
+
+      {view === 'presets' && (
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[260px_1fr]">
         {/* Preset list */}
         <div className="space-y-1.5">
@@ -379,6 +454,7 @@ export default function HomePresetsPage() {
           <p className="text-sm text-faint">Select a preset, or create a new one.</p>
         )}
       </div>
+      )}
     </AppShell>
   );
 }
