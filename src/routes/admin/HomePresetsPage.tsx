@@ -17,8 +17,12 @@ interface HomePreset {
 }
 
 interface HomePresetItemDataSource {
-  kind: 'collection';
-  collectionId: string;
+  // Widened beyond 'collection' so rows with an unrecognized kind (a manual
+  // DB edit, a legacy row, or a future non-collection producer) type-check
+  // instead of silently assuming collectionId exists. See the render guard
+  // in the items list below.
+  kind: string;
+  collectionId?: string;
 }
 
 interface HomePresetItem {
@@ -289,7 +293,20 @@ export default function HomePresetsPage() {
             <div className="rounded-xl border border-border bg-surface p-5">
               <h2 className="mb-3 text-sm font-semibold text-text">Widgets in this preset</h2>
               <div className="space-y-2">
-                {items.map((item, index) => (
+                {items.map((item, index) => {
+                  if (item.data_source.kind !== 'collection' || !item.data_source.collectionId) {
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
+                        <span className="flex-1 truncate text-sm italic text-faint" title="This item's data source isn't a recognized collection reference">
+                          Unsupported item
+                        </span>
+                        <button onClick={() => removeItem(item)} className="text-faint hover:text-red-400" title="Remove">
+                          ×
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
                   <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
                     <span className="flex-1 truncate text-sm text-text">{collectionName(item.data_source.collectionId)}</span>
                     <select
@@ -334,7 +351,8 @@ export default function HomePresetsPage() {
                       ×
                     </button>
                   </div>
-                ))}
+                  );
+                })}
                 {items.length === 0 && <p className="text-sm text-faint">No collections in this preset yet.</p>}
               </div>
 
