@@ -9,6 +9,7 @@ import { ArtworkGallery } from '../../components/catalog/ArtworkGallery';
 import { SourcesTable } from '../../components/catalog/SourcesTable';
 import { JsonImport } from '../../components/catalog/JsonImport';
 import { CollectionSettings } from '../../components/catalog/CollectionSettings';
+import { WidgetGrid, type WidgetTab, TAB_FLAG } from '../../components/catalog/WidgetGrid';
 import { useAutoScrollOnDrag } from '../../hooks/useAutoScrollOnDrag';
 import type { Collection, Folder, FolderSource, FolderCatalog, InstalledAddon } from '../../types';
 
@@ -39,6 +40,34 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const folderDrag = useRef<number | null>(null);
+  // "Your Widgets" grid (Fix 8, docs/superpowers/specs/2026-09-08-widget-
+  // portal-editor-and-tiered-permissions-design.md): a tab-scoped entry
+  // point on top of the existing tree+detail editor below, not a
+  // replacement for it — picking a card just selects that collection and
+  // drops into the same Folders/Artwork/Sources/Collection tabs as
+  // clicking it in the sidebar tree would.
+  const [viewMode, setViewMode] = useState<'grid' | 'tree'>('grid');
+  const [widgetTab, setWidgetTab] = useState<WidgetTab>('home');
+
+  function openWidget(c: Collection) {
+    setSelectedId(c.id);
+    setViewMode('tree');
+    setTab('collection');
+  }
+
+  async function addWidget() {
+    const name = prompt('Widget name')?.trim();
+    if (!name) return;
+    const { ios, mac } = TAB_FLAG[widgetTab];
+    const { data, error } = await supabase.from('collections').insert({
+      name, view_mode: 'FOLLOW_LAYOUT', sort_order: collections.length,
+      status: 'draft', [ios]: true, [mac]: true,
+    }).select().single();
+    if (error) { console.error('Failed to create widget:', error); return; }
+    const created = data as Collection;
+    setCollections((p) => [...p, created]);
+    openWidget(created);
+  }
 
   useEffect(() => {
     loadCollections();
@@ -554,6 +583,52 @@ export default function CatalogPage() {
         </div>
       </div>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {viewMode === 'grid' ? (
+          <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
+            {(['home', 'movies', 'series'] as WidgetTab[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => setWidgetTab(t)}
+                className={`px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
+                  t === widgetTab ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <button
+            onClick={() => setViewMode('grid')}
+            className="text-[12.5px] font-medium text-muted hover:text-accent"
+          >
+            ← Your Widgets
+          </button>
+        )}
+        <button
+          onClick={() => setViewMode((m) => (m === 'grid' ? 'tree' : 'grid'))}
+          className="rounded-lg border border-border-strong px-3 py-1.5 text-[12px] text-muted hover:text-text"
+        >
+          {viewMode === 'grid' ? 'Advanced tree view' : 'Back to grid'}
+        </button>
+      </div>
+
+      {viewMode === 'grid' ? (
+        loading ? (
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="h-[178px] animate-pulse rounded-2xl bg-surface-2" />)}
+          </div>
+        ) : (
+          <WidgetGrid
+            collections={collections}
+            folders={allFolders}
+            activeTab={widgetTab}
+            onSelectCollection={openWidget}
+            onAddWidget={addWidget}
+          />
+        )
+      ) : (
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
         {/* sidebar */}
         <aside className="h-fit rounded-2xl border border-border bg-surface p-3.5 lg:sticky lg:top-20">
@@ -652,6 +727,7 @@ export default function CatalogPage() {
           </div>
         </div>
       </div>
+      )}
     </AppShell>
   );
 }
