@@ -33,7 +33,9 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
     draft.show_ios_series !== collection.show_ios_series ||
     draft.show_mac_home !== collection.show_mac_home ||
     draft.show_mac_movies !== collection.show_mac_movies ||
-    draft.show_mac_series !== collection.show_mac_series;
+    draft.show_mac_series !== collection.show_mac_series ||
+    draft.status !== collection.status ||
+    draft.display_section !== collection.display_section;
 
   function set<K extends keyof Collection>(key: K, value: Collection[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
@@ -57,6 +59,8 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
         show_mac_home: draft.show_mac_home,
         show_mac_movies: draft.show_mac_movies,
         show_mac_series: draft.show_mac_series,
+        status: draft.status,
+        display_section: draft.display_section,
       });
     } finally {
       setSaving(false);
@@ -120,9 +124,20 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
       {/* Header */}
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-widest text-accent">
-            Collection · {collection.name}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-accent">
+              Collection · {collection.name}
+            </p>
+            <span
+              className={`rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest ${
+                collection.status === 'published'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  : 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-400'
+              }`}
+            >
+              {collection.status}
+            </span>
+          </div>
           <p className="mt-1 text-sm text-muted">
             Edit backdrop, display settings, then save. Export to re-import elsewhere.
           </p>
@@ -194,6 +209,54 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Publish state + display section */}
+        <div className="overflow-hidden rounded-2xl border border-border bg-bg2 p-3.5">
+          <label className={labelClass}>Publish state</label>
+          <div className="flex gap-1.5">
+            {(['draft', 'published'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => set('status', status)}
+                className={`flex-1 rounded-md border px-1 py-1.5 font-mono text-[9px] uppercase tracking-wide transition-colors ${
+                  draft.status === status
+                    ? 'border-accent bg-accent-light text-accent'
+                    : 'border-border text-muted hover:border-accent/40'
+                }`}
+              >
+                {status}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-faint">
+            Draft work is invisible everywhere until published — safe to build here.
+          </p>
+
+          {/* Display section */}
+          <label className={`mt-4 block ${labelClass}`}>Display section</label>
+          <div className="flex gap-1.5">
+            {([
+              { value: null, label: 'default' },
+              { value: 'rows' as const, label: 'rows' },
+              { value: 'hub' as const, label: 'hub' },
+            ]).map(({ value, label }) => (
+              <button
+                key={label}
+                onClick={() => set('display_section', value)}
+                className={`flex-1 rounded-md border px-1 py-1.5 font-mono text-[9px] uppercase tracking-wide transition-colors ${
+                  draft.display_section === value
+                    ? 'border-accent bg-accent-light text-accent'
+                    : 'border-border text-muted hover:border-accent/40'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-faint">
+            "default" keeps today's automatic hub-vs-rows behavior; the other two are explicit.
+          </p>
         </div>
 
         {/* Display flags */}

@@ -71,6 +71,15 @@ export interface Collection {
   /** NULL = shared/admin-curated collection. Non-null = personal collection
    *  owned by that profile, private to them via RLS. */
   owner_profile_id: string | null;
+  /** Publish gate — 'draft' work is invisible everywhere until published.
+   *  Every existing row is backfilled to 'published' (see
+   *  20260909_collections_status_and_display_section.sql), so 'draft' only
+   *  ever means "created after this column existed and not yet published." */
+  status: 'draft' | 'published';
+  /** Rows-vs-hub choice a curator publishes for every viewer — distinct from
+   *  the app's local, per-device admin preview toggle (CollectionDisplayPreferenceStore,
+   *  never synced). null keeps the existing default hub-row fallback. */
+  display_section: 'rows' | 'hub' | null;
 }
 
 export interface Folder {

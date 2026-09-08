@@ -14,6 +14,49 @@ export function catalogUrlFor(addonUrl: string, type: string, catalogId: string)
   return `${base}/catalog/${type}/${catalogId}.json`;
 }
 
+/**
+ * GETs a catalog and returns how many metas the addon handed back — 0 for a
+ * dead catalog, ~50 for a healthy one. This is the same check that surfaced
+ * `trakt.anticipated.shows` returning 2 of a 50-item upstream list and
+ * `mdblist.20340` returning 0: a folder's admin view had no way to see that
+ * short of manually curling the addon. Throws on a network/HTTP failure —
+ * callers treat "couldn't check" and "checked, got 0" as distinct states.
+ */
+export async function probeCatalog(addonUrl: string, type: string, catalogId: string): Promise<number> {
+  const res = await fetch(catalogUrlFor(addonUrl, type, catalogId));
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  return Array.isArray(json.metas) ? json.metas.length : 0;
+}
+
+export type CatalogHealth =
+  | { status: 'checking' }
+  | { status: 'ok'; count: number }
+  | { status: 'error'; message: string };
+
+/** Probes a catalog once on mount (unlike `useCatalogPreview`, which is lazy
+ *  and gated on `enabled`) so a source row can show a health badge without
+ *  the admin needing to expand it first — the whole point being that a dead
+ *  catalog is otherwise invisible until someone happens to look. */
+export function useCatalogHealth(addonUrl: string | null, type: string, catalogId: string): CatalogHealth {
+  const [health, setHealth] = useState<CatalogHealth>({ status: 'checking' });
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!addonUrl) {
+      setHealth({ status: 'error', message: 'No addon linked' });
+      return;
+    }
+    setHealth({ status: 'checking' });
+    probeCatalog(addonUrl, type, catalogId)
+      .then((count) => { if (!cancelled) setHealth({ status: 'ok', count }); })
+      .catch((e) => { if (!cancelled) setHealth({ status: 'error', message: (e as Error).message }); });
+    return () => { cancelled = true; };
+  }, [addonUrl, type, catalogId]);
+
+  return health;
+}
+
 /** Fetches the first few items of one catalog for an inline preview. Lazy:
  *  nothing is requested until `enabled` flips true, so collapsed rows cost
  *  nothing. A failed/slow addon yields an error string rather than throwing —

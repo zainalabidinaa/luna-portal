@@ -16,15 +16,38 @@ interface HomePreset {
   sort_order: number;
 }
 
+// Mirrors WidgetDataSource's Codable encoding verbatim (Packages/MoonlitCore/
+// Sources/MoonlitCore/Models/WidgetModels.swift) — camelCase keys, `kind` as
+// the discriminator. The portal only ever produces `collection` today; the
+// other cases are modeled so a stored preset item never fails to decode here
+// even if something else (or a future portal feature) writes one.
+type WidgetDataSource =
+  | { kind: 'collection'; collectionId: string }
+  | { kind: 'addonCatalog'; addonId: string; catalogId: string; mediaType: string }
+  | { kind: 'traktList'; listId: string; query?: string | null }
+  | { kind: 'watchlist' }
+  | { kind: 'filtering'; query: string };
+
+function collectionIdOf(dataSource: WidgetDataSource): string | null {
+  return dataSource.kind === 'collection' ? dataSource.collectionId : null;
+}
+
 interface HomePresetItem {
   id: string;
   preset_id: string;
-  collection_id: string;
+  data_source: WidgetDataSource;
+  /** null = every item in the resolved row; 'movie'/'series' narrows it — mirrors DBHomePresetItem.mediaType. */
+  media_type: 'movie' | 'series' | null;
   style: string;
   sort_order: number;
 }
 
 const STYLES = ['standard', 'heroBanner', 'cardStack', 'carouselCinematic', 'topTen'];
+const MEDIA_TYPES: { value: 'movie' | 'series' | null; label: string }[] = [
+  { value: null, label: 'All' },
+  { value: 'movie', label: 'Movies' },
+  { value: 'series', label: 'Series' },
+];
 
 function slugify(name: string) {
   return name
@@ -123,7 +146,7 @@ export default function HomePresetsPage() {
 
   async function deletePreset() {
     if (!selected) return;
-    if (!confirm(`Delete "${selected.name}"? This also removes its collection list.`)) return;
+    if (!confirm(`Delete "${selected.name}"? This also removes its widget list.`)) return;
     await supabase.from('home_presets').delete().eq('id', selected.id);
     setPresets((prev) => prev.filter((p) => p.id !== selected.id));
     setSelectedId(null);
@@ -131,9 +154,10 @@ export default function HomePresetsPage() {
 
   async function addItem() {
     if (!selected || !addCollectionId) return;
+    const dataSource: WidgetDataSource = { kind: 'collection', collectionId: addCollectionId };
     const { data, error } = await supabase
       .from('home_preset_items')
-      .insert({ preset_id: selected.id, collection_id: addCollectionId, style: 'standard', sort_order: items.length })
+      .insert({ preset_id: selected.id, data_source: dataSource, style: 'standard', sort_order: items.length })
       .select()
       .single();
     if (error) {
@@ -154,6 +178,11 @@ export default function HomePresetsPage() {
     await supabase.from('home_preset_items').update({ style }).eq('id', item.id);
   }
 
+  async function setItemMediaType(item: HomePresetItem, mediaType: 'movie' | 'series' | null) {
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, media_type: mediaType } : i)));
+    await supabase.from('home_preset_items').update({ media_type: mediaType }).eq('id', item.id);
+  }
+
   async function moveItem(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= items.length) return;
@@ -169,7 +198,7 @@ export default function HomePresetsPage() {
     ]);
   }
 
-  const availableCollections = collections.filter((c) => !items.some((i) => i.collection_id === c.id));
+  const availableCollections = collections.filter((c) => !items.some((i) => collectionIdOf(i.data_source) === c.id));
 
   if (loading) {
     return (
@@ -262,11 +291,25 @@ export default function HomePresetsPage() {
             </div>
 
             <div className="rounded-xl border border-border bg-surface p-5">
-              <h2 className="mb-3 text-sm font-semibold text-text">Collections in this preset</h2>
+              <h2 className="mb-3 text-sm font-semibold text-text">Widgets in this preset</h2>
               <div className="space-y-2">
                 {items.map((item, index) => (
                   <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-                    <span className="flex-1 truncate text-sm text-text">{collectionName(item.collection_id)}</span>
+                    <span className="flex-1 truncate text-sm text-text">
+                      {collectionIdOf(item.data_source) ? collectionName(collectionIdOf(item.data_source)!) : `(${item.data_source.kind})`}
+                    </span>
+                    <select
+                      value={item.media_type ?? ''}
+                      onChange={(e) => setItemMediaType(item, (e.target.value || null) as 'movie' | 'series' | null)}
+                      title="Scope this widget's row to one media kind, or leave it unscoped"
+                      className="rounded-lg border border-border bg-bg px-2 py-1 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
+                    >
+                      {MEDIA_TYPES.map(({ value, label }) => (
+                        <option key={label} value={value ?? ''}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                     <select
                       value={item.style}
                       onChange={(e) => setItemStyle(item, e.target.value)}
@@ -299,7 +342,7 @@ export default function HomePresetsPage() {
                     </button>
                   </div>
                 ))}
-                {items.length === 0 && <p className="text-sm text-faint">No collections in this preset yet.</p>}
+                {items.length === 0 && <p className="text-sm text-faint">No widgets in this preset yet.</p>}
               </div>
 
               <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
