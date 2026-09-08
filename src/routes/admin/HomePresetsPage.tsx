@@ -212,7 +212,7 @@ export default function HomePresetsPage() {
     <AppShell>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-text">Home Presets</h1>
+          <h1 className="text-xl font-semibold text-text">Widgets</h1>
           <p className="mt-1 text-sm text-muted">
             Curated home layouts for Premium/Friends & Family accounts. Only <span className="text-accent">active</span> presets show up in the app.
           </p>

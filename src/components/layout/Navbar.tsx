@@ -73,7 +73,7 @@ export function Navbar() {
                 {({ isActive }) => (<>Home Layout<ActiveBar show={isActive} /></>)}
               </NavLink>
               <NavLink to="/admin/home-presets" className={navClass}>
-                {({ isActive }) => (<>Home Presets<ActiveBar show={isActive} /></>)}
+                {({ isActive }) => (<>Widgets<ActiveBar show={isActive} /></>)}
               </NavLink>
               <NavLink to="/admin/catalog" className={navClass}>
                 {({ isActive }) => (<>Collections<ActiveBar show={isActive} /></>)}
