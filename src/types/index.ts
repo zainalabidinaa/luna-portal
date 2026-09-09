@@ -121,6 +121,60 @@ export interface FolderCatalog {
   addon_id: string | null;
 }
 
+export interface LanguageHubRail {
+  id: string;
+  /** 'general' rows with iso=null are MacLanguageHubView's shared default
+   *  tier; a language's own 'general' rows (iso set) fully replace those
+   *  defaults for that language (not merged) — matching the Arabic-only
+   *  override that existed before this table did. 'featured' rows are
+   *  always additive per-language rails. */
+  tier: 'general' | 'featured';
+  iso: string | null;
+  title: string;
+  kind: 'movie' | 'tv' | 'both';
+  filter_type: 'language' | 'country';
+  /** '' with filter_type='language' means "use this language's own iso" —
+   *  a non-empty value only occurs with filter_type='country' (pooled
+   *  country codes, e.g. Arabic's regional groupings). */
+  filter_value: string;
+  params: Record<string, string>;
+  sort_order: number;
+}
+
+export interface HomePreset {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  locale_tag: string | null;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface HomePresetItemDataSource {
+  // Widened beyond 'collection' so a row with an unrecognized kind (a manual
+  // DB edit, a legacy row, or a future non-collection producer) type-checks
+  // instead of silently assuming collectionId exists.
+  kind: string;
+  collectionId?: string;
+}
+
+export interface HomePresetItem {
+  id: string;
+  preset_id: string;
+  /** Which of the on-device Home/Movies/Series tabs this item populates —
+   *  see 20260910_home_preset_items_tab_scope.sql. Independent of
+   *  media_type, which narrows content *within* whichever tab this is. */
+  tab: 'home' | 'movies' | 'series';
+  // Mirrors WidgetDataSource's encoded shape (Packages/MoonlitCore/Sources/
+  // MoonlitCore/Models/WidgetModels.swift). Only the 'collection' kind is
+  // producible from the portal today.
+  data_source: HomePresetItemDataSource;
+  media_type: 'movie' | 'series' | null;
+  style: string;
+  sort_order: number;
+}
+
 export type Plan = 'premium' | 'premium_plus';
 
 export type SupportTopic = 'general' | 'billing' | 'account' | 'playback' | 'bug';

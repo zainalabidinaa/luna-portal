@@ -1,60 +1,15 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
-import { WidgetGrid, TAB_FLAG, type WidgetTab } from '../../components/catalog/WidgetGrid';
-import type { Collection, Folder } from '../../types';
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-interface HomePreset {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  locale_tag: string | null;
-  is_active: boolean;
-  sort_order: number;
-}
-
-interface HomePresetItemDataSource {
-  // Widened beyond 'collection' so rows with an unrecognized kind (a manual
-  // DB edit, a legacy row, or a future non-collection producer) type-check
-  // instead of silently assuming collectionId exists. See the render guard
-  // in the items list below.
-  kind: string;
-  collectionId?: string;
-}
-
-interface HomePresetItem {
-  id: string;
-  preset_id: string;
-  // Mirrors WidgetDataSource's encoded shape (Packages/MoonlitCore/Sources/
-  // MoonlitCore/Models/WidgetModels.swift). Only the 'collection' kind is
-  // producible from this page today.
-  data_source: HomePresetItemDataSource;
-  media_type: 'movie' | 'series' | null;
-  style: string;
-  sort_order: number;
-}
-
-const STYLES = ['standard', 'heroBanner', 'cardStack', 'carouselCinematic', 'topTen'];
-const MEDIA_TYPES: { value: HomePresetItem['media_type']; label: string }[] = [
-  { value: null, label: 'All' },
-  { value: 'movie', label: 'Movies' },
-  { value: 'series', label: 'Series' },
-];
+import { WidgetGrid, TAB_FLAG, type WidgetTab, type WidgetCardItem } from '../../components/catalog/WidgetGrid';
+import { WidgetEditor } from '../../components/catalog/WidgetEditor';
+import { HomeBrowseHubSection, HomeBrowseTilesEditorPanel } from '../../components/catalog/HomeBrowseHubSection';
+import type { Collection, Folder, HomePreset, HomePresetItem } from '../../types';
 
 function slugify(name: string) {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
+  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
-
-// ── Toggle switch (mirrors HomeLayoutPage.tsx's Toggle) ──────────────────────
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -63,62 +18,51 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
       className={`relative h-5 w-9 flex-none rounded-full transition-colors ${on ? 'bg-accent' : 'border border-border bg-surface-2'}`}
       title={on ? 'Active — visible to Premium/Friends & Family' : 'Inactive — hidden from the app'}
     >
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`}
-      />
+      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : 'translate-x-0.5'}`} />
     </button>
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+type Screen = { kind: 'grid' } | { kind: 'editor'; collectionId: string } | { kind: 'browse-hub'; browseKind: 'genre' | 'language' };
 
 export default function HomePresetsPage() {
-  const navigate = useNavigate();
   const [presets, setPresets] = useState<HomePreset[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [items, setItems] = useState<HomePresetItem[]>([]);
-  const [addCollectionId, setAddCollectionId] = useState('');
   const [loading, setLoading] = useState(true);
-  // "Your Widgets" grid (Fix 8) is the primary view of this page — "Manage
-  // Presets" (picking which widgets go into a curated Signature/Arabic/…
-  // layout, Fix 3's scope) is a distinct, secondary concern that stays
-  // reachable via the toggle rather than disappearing.
-  const [view, setView] = useState<'widgets' | 'presets'>('widgets');
+
+  // null selectedPresetId = "All Widgets" mode (today's global tab-visibility
+  // view). A real preset id = that preset's own per-tab item list.
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [widgetTab, setWidgetTab] = useState<WidgetTab>('home');
+  const [presetItems, setPresetItems] = useState<HomePresetItem[]>([]);
+  const [screen, setScreen] = useState<Screen>({ kind: 'grid' });
+  const [showPresetPanel, setShowPresetPanel] = useState(false);
+  const [showAddPanel, setShowAddPanel] = useState(false);
+  const [addExistingId, setAddExistingId] = useState('');
 
-  function openWidget(c: Collection) {
-    navigate(`/admin/catalog?collection=${c.id}`);
-  }
-
-  async function addWidget() {
-    const name = prompt('Widget name')?.trim();
-    if (!name) return;
-    const { ios, mac } = TAB_FLAG[widgetTab];
-    const { data, error } = await supabase.from('collections').insert({
-      name, view_mode: 'FOLLOW_LAYOUT', sort_order: collections.length,
-      status: 'draft', [ios]: true, [mac]: true,
-    }).select().single();
-    if (error) { alert(error.message); return; }
-    navigate(`/admin/catalog?collection=${(data as Collection).id}`);
-  }
-
-  const selected = presets.find((p) => p.id === selectedId) ?? null;
-  const collectionName = (id: string) => collections.find((c) => c.id === id)?.name ?? id;
+  const mode: 'all' | 'preset' = selectedPresetId ? 'preset' : 'all';
+  const selectedPreset = presets.find((p) => p.id === selectedPresetId) ?? null;
 
   async function loadPresets() {
     const { data } = await supabase.from('home_presets').select('*').order('sort_order');
-    setPresets((data as HomePreset[]) ?? []);
+    const loaded = (data as HomePreset[]) ?? [];
+    setPresets(loaded);
+    // Default to the active preset (Signature) rather than "All Widgets" —
+    // that's what actually ships to the app, so it should be what an admin
+    // sees first, with "All Widgets" and other presets still one click away.
+    const defaultPreset = loaded.find((p) => p.slug === 'signature' && p.is_active) ?? loaded.find((p) => p.is_active);
+    if (defaultPreset) setSelectedPresetId(defaultPreset.id);
   }
 
-  async function loadItems(presetId: string) {
+  async function loadPresetItems(presetId: string, tab: WidgetTab) {
     const { data } = await supabase
       .from('home_preset_items')
       .select('*')
       .eq('preset_id', presetId)
+      .eq('tab', tab)
       .order('sort_order');
-    setItems((data as HomePresetItem[]) ?? []);
+    setPresetItems((data as HomePresetItem[]) ?? []);
   }
 
   useEffect(() => {
@@ -126,25 +70,21 @@ export default function HomePresetsPage() {
       setLoading(true);
       await Promise.all([
         loadPresets(),
-        supabase
-          .from('collections')
-          .select('*')
-          .order('sort_order')
-          .then(({ data }) => setCollections((data as Collection[]) ?? [])),
-        supabase
-          .from('folders')
-          .select('*')
-          .order('sort_order')
-          .then(({ data }) => setFolders((data as Folder[]) ?? [])),
+        supabase.from('collections').select('*').order('sort_order').then(({ data }) => setCollections((data as Collection[]) ?? [])),
+        supabase.from('folders').select('*').order('sort_order').then(({ data }) => setFolders((data as Folder[]) ?? [])),
       ]);
       setLoading(false);
     })();
   }, []);
 
   useEffect(() => {
-    if (selectedId) loadItems(selectedId);
-    else setItems([]);
-  }, [selectedId]);
+    setShowAddPanel(false);
+    setAddExistingId('');
+    if (selectedPresetId) loadPresetItems(selectedPresetId, widgetTab);
+    else setPresetItems([]);
+  }, [selectedPresetId, widgetTab]);
+
+  // ── preset metadata ──────────────────────────────────────────────────────
 
   async function createPreset() {
     const name = prompt('Preset name (e.g. "Arabic")');
@@ -155,86 +95,160 @@ export default function HomePresetsPage() {
       .insert({ slug, name: name.trim(), is_active: false, sort_order: presets.length })
       .select()
       .single();
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setPresets((prev) => [...prev, data as HomePreset]);
-    setSelectedId((data as HomePreset).id);
+    if (error) { alert(error.message); return; }
+    const created = data as HomePreset;
+    setPresets((prev) => [...prev, created]);
+    setSelectedPresetId(created.id);
+    setShowPresetPanel(true);
   }
 
   async function updatePreset(patch: Partial<HomePreset>) {
-    if (!selected) return;
-    const next = { ...selected, ...patch };
-    setPresets((prev) => prev.map((p) => (p.id === selected.id ? next : p)));
-    await supabase.from('home_presets').update(patch).eq('id', selected.id);
+    if (!selectedPreset) return;
+    setPresets((prev) => prev.map((p) => (p.id === selectedPreset.id ? { ...p, ...patch } : p)));
+    await supabase.from('home_presets').update(patch).eq('id', selectedPreset.id);
   }
 
   async function deletePreset() {
-    if (!selected) return;
-    if (!confirm(`Delete "${selected.name}"? This also removes its widget list.`)) return;
-    await supabase.from('home_presets').delete().eq('id', selected.id);
-    setPresets((prev) => prev.filter((p) => p.id !== selected.id));
-    setSelectedId(null);
+    if (!selectedPreset) return;
+    if (!confirm(`Delete "${selectedPreset.name}"? This also removes its widget lists for every tab.`)) return;
+    await supabase.from('home_presets').delete().eq('id', selectedPreset.id);
+    setPresets((prev) => prev.filter((p) => p.id !== selectedPreset.id));
+    setSelectedPresetId(null);
+    setShowPresetPanel(false);
   }
 
-  async function addItem() {
-    if (!selected || !addCollectionId) return;
-    const { data, error } = await supabase
-      .from('home_preset_items')
-      .insert({
-        preset_id: selected.id,
-        data_source: { kind: 'collection', collectionId: addCollectionId },
-        media_type: null,
-        style: 'standard',
-        sort_order: items.length,
-      })
-      .select()
-      .single();
-    if (error) {
-      alert(error.message);
+  // ── widgets: grid data + mutations, mode-aware ──────────────────────────
+
+  const allTabItems: WidgetCardItem[] = collections
+    .filter((c) => !c.parent_collection_id && !c.parent_folder_id)
+    .filter((c) => { const { ios, mac } = TAB_FLAG[widgetTab]; return Boolean(c[ios]) || Boolean(c[mac]); })
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((c) => ({ key: c.id, collection: c }));
+
+  const presetTabItems: WidgetCardItem[] = presetItems
+    .map((item) => {
+      const collectionId = item.data_source.kind === 'collection' ? item.data_source.collectionId : undefined;
+      const collection = collectionId ? collections.find((c) => c.id === collectionId) : undefined;
+      return collection ? { key: item.id, collection } : null;
+    })
+    .filter((x): x is WidgetCardItem => x !== null);
+
+  const gridItems = mode === 'preset' ? presetTabItems : allTabItems;
+
+  async function addNewWidget(): Promise<Collection | null> {
+    const name = prompt('Widget name')?.trim();
+    if (!name) return null;
+    const { ios, mac } = TAB_FLAG[widgetTab];
+    const { data, error } = await supabase.from('collections').insert({
+      name, view_mode: 'FOLLOW_LAYOUT', sort_order: collections.length,
+      status: 'draft', [ios]: true, [mac]: true,
+    }).select().single();
+    if (error) { alert(error.message); return null; }
+    const created = data as Collection;
+    setCollections((p) => [...p, created]);
+    return created;
+  }
+
+  async function handleAddWidget() {
+    if (mode === 'all') {
+      const created = await addNewWidget();
+      if (created) setScreen({ kind: 'editor', collectionId: created.id });
       return;
     }
-    setItems((prev) => [...prev, data as HomePresetItem]);
-    setAddCollectionId('');
+    setShowAddPanel(true);
   }
 
-  async function removeItem(item: HomePresetItem) {
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    await supabase.from('home_preset_items').delete().eq('id', item.id);
+  async function addExistingToPreset() {
+    if (!selectedPresetId || !addExistingId) return;
+    const { data, error } = await supabase.from('home_preset_items').insert({
+      preset_id: selectedPresetId, tab: widgetTab,
+      data_source: { kind: 'collection', collectionId: addExistingId },
+      media_type: null, style: 'standard', sort_order: presetItems.length,
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    setPresetItems((p) => [...p, data as HomePresetItem]);
+    setAddExistingId('');
+    setShowAddPanel(false);
   }
 
-  async function setItemStyle(item: HomePresetItem, style: string) {
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, style } : i)));
-    await supabase.from('home_preset_items').update({ style }).eq('id', item.id);
+  async function createAndAddToPreset() {
+    if (!selectedPresetId) return;
+    const created = await addNewWidget();
+    if (!created) return;
+    const { data, error } = await supabase.from('home_preset_items').insert({
+      preset_id: selectedPresetId, tab: widgetTab,
+      data_source: { kind: 'collection', collectionId: created.id },
+      media_type: null, style: 'standard', sort_order: presetItems.length,
+    }).select().single();
+    if (!error) setPresetItems((p) => [...p, data as HomePresetItem]);
+    setShowAddPanel(false);
+    setScreen({ kind: 'editor', collectionId: created.id });
   }
 
-  async function setItemMediaType(item: HomePresetItem, mediaType: HomePresetItem['media_type']) {
-    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, media_type: mediaType } : i)));
-    await supabase.from('home_preset_items').update({ media_type: mediaType }).eq('id', item.id);
+  async function handleDeleteCard(item: WidgetCardItem) {
+    if (mode === 'all') {
+      await supabase.from('collections').delete().eq('id', item.collection.id);
+      setCollections((p) => p.filter((c) => c.id !== item.collection.id));
+    } else {
+      await supabase.from('home_preset_items').delete().eq('id', item.key);
+      setPresetItems((p) => p.filter((i) => i.id !== item.key));
+    }
   }
 
-  async function moveItem(index: number, direction: -1 | 1) {
-    const target = index + direction;
-    if (target < 0 || target >= items.length) return;
-    const a = items[index];
-    const b = items[target];
-    const next = [...items];
-    next[index] = { ...b, sort_order: a.sort_order };
-    next[target] = { ...a, sort_order: b.sort_order };
-    setItems(next);
-    await Promise.all([
-      supabase.from('home_preset_items').update({ sort_order: b.sort_order }).eq('id', a.id),
-      supabase.from('home_preset_items').update({ sort_order: a.sort_order }).eq('id', b.id),
-    ]);
+  async function handleReorderCard(draggedKey: string, targetKey: string, zone: 'before' | 'after') {
+    if (mode === 'all') {
+      const dragged = collections.find((c) => c.id === draggedKey);
+      const target = collections.find((c) => c.id === targetKey);
+      if (!dragged || !target) return;
+      const siblings = allTabItems.map((i) => i.collection).filter((c) => c.id !== draggedKey);
+      const targetIdx = siblings.findIndex((c) => c.id === targetKey);
+      if (targetIdx === -1) return;
+      siblings.splice(zone === 'before' ? targetIdx : targetIdx + 1, 0, dragged);
+      setCollections((prev) => {
+        const byId = new Map(siblings.map((c, i) => [c.id, i]));
+        return prev.map((c) => (byId.has(c.id) ? { ...c, sort_order: byId.get(c.id)! } : c));
+      });
+      await Promise.all(siblings.map((c, i) => supabase.from('collections').update({ sort_order: i }).eq('id', c.id)));
+    } else {
+      const dragged = presetItems.find((i) => i.id === draggedKey);
+      const target = presetItems.find((i) => i.id === targetKey);
+      if (!dragged || !target) return;
+      const siblings = presetItems.filter((i) => i.id !== draggedKey).sort((a, b) => a.sort_order - b.sort_order);
+      const targetIdx = siblings.findIndex((i) => i.id === targetKey);
+      if (targetIdx === -1) return;
+      siblings.splice(zone === 'before' ? targetIdx : targetIdx + 1, 0, dragged);
+      setPresetItems((prev) => {
+        const byId = new Map(siblings.map((i, idx) => [i.id, idx]));
+        return prev.map((i) => (byId.has(i.id) ? { ...i, sort_order: byId.get(i.id)! } : i));
+      });
+      await Promise.all(siblings.map((i, idx) => supabase.from('home_preset_items').update({ sort_order: idx }).eq('id', i.id)));
+    }
   }
 
-  const availableCollections = collections.filter((c) => !items.some((i) => i.data_source.collectionId === c.id));
+  const availableForPreset = collections.filter(
+    (c) => !c.parent_collection_id && !c.parent_folder_id && !presetItems.some((i) => i.data_source.collectionId === c.id)
+  );
 
   if (loading) {
     return (
       <AppShell>
         <p className="text-faint">Loading…</p>
+      </AppShell>
+    );
+  }
+
+  if (screen.kind === 'editor') {
+    return (
+      <AppShell>
+        <WidgetEditor collectionId={screen.collectionId} onBack={() => setScreen({ kind: 'grid' })} />
+      </AppShell>
+    );
+  }
+
+  if (screen.kind === 'browse-hub') {
+    return (
+      <AppShell>
+        <HomeBrowseTilesEditorPanel kind={screen.browseKind} onBack={() => setScreen({ kind: 'grid' })} />
       </AppShell>
     );
   }
@@ -245,215 +259,115 @@ export default function HomePresetsPage() {
         <div>
           <h1 className="text-xl font-semibold text-text">Widgets</h1>
           <p className="mt-1 text-sm text-muted">
-            {view === 'widgets'
+            {mode === 'all'
               ? 'Every Home/Movies/Series widget — build and publish them here.'
-              : <>Curated home layouts for Premium/Friends & Family accounts. Only <span className="text-accent">active</span> presets show up in the app.</>}
+              : <>Editing <span className="text-accent">{selectedPreset?.name}</span>'s widget list for this tab. Curated home layouts for Premium/Friends & Family — only <span className="text-accent">active</span> presets show up in the app.</>}
           </p>
         </div>
-        {view === 'presets' && <Button onClick={createPreset}>+ New Preset</Button>}
+        <Button variant="ghost" size="sm" onClick={createPreset}>+ New Preset</Button>
       </div>
 
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
-          {(['widgets', 'presets'] as const).map((v) => (
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedPresetId ?? ''}
+            onChange={(e) => setSelectedPresetId(e.target.value || null)}
+            className="rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-[12.5px] text-text outline-none focus:border-accent"
+          >
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>
+            ))}
+          </select>
+          {selectedPreset && (
             <button
-              key={v}
-              onClick={() => setView(v)}
+              onClick={() => setShowPresetPanel((v) => !v)}
+              title="Edit preset details"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-border-strong text-muted hover:border-accent hover:text-accent"
+            >
+              ⚙
+            </button>
+          )}
+        </div>
+        <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
+          {(['home', 'movies', 'series'] as WidgetTab[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setWidgetTab(t)}
               className={`px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
-                v === view ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
+                t === widgetTab ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
               }`}
             >
-              {v === 'widgets' ? 'Your Widgets' : 'Manage Presets'}
+              {t}
             </button>
           ))}
         </div>
-        {view === 'widgets' && (
-          <div className="inline-flex rounded-lg border border-border-strong overflow-hidden">
-            {(['home', 'movies', 'series'] as WidgetTab[]).map((t) => (
-              <button
-                key={t}
-                onClick={() => setWidgetTab(t)}
-                className={`px-3.5 py-1.5 text-[12.5px] font-medium capitalize transition-colors ${
-                  t === widgetTab ? 'bg-accent-light text-accent' : 'text-muted hover:text-text'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {view === 'widgets' && (
-        <WidgetGrid
-          collections={collections}
-          folders={folders}
-          activeTab={widgetTab}
-          onSelectCollection={openWidget}
-          onAddWidget={addWidget}
-        />
+      {selectedPreset && showPresetPanel && (
+        <div className="mb-5 rounded-xl border border-border bg-surface p-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-faint">Name</span>
+              <input value={selectedPreset.name} onChange={(e) => updatePreset({ name: e.target.value })}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-faint">Slug</span>
+              <input value={selectedPreset.slug} onChange={(e) => updatePreset({ slug: e.target.value })}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 font-mono text-sm text-text focus:border-accent focus:outline-none" />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="mb-1 block text-xs font-medium text-faint">Description</span>
+              <input value={selectedPreset.description ?? ''} onChange={(e) => updatePreset({ description: e.target.value || null })}
+                className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-faint">Locale tag</span>
+              <input value={selectedPreset.locale_tag ?? ''} onChange={(e) => updatePreset({ locale_tag: e.target.value || null })}
+                placeholder="ar, tr, asian…"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 font-mono text-sm text-text placeholder:text-faint focus:border-accent focus:outline-none" />
+            </label>
+            <div className="flex items-end gap-2">
+              <span className="text-xs font-medium text-faint">Active</span>
+              <Toggle on={selectedPreset.is_active} onChange={(v) => updatePreset({ is_active: v })} />
+            </div>
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border pt-4">
+            <Button variant="danger" size="sm" onClick={deletePreset}>Delete preset</Button>
+          </div>
+        </div>
       )}
 
-      {view === 'presets' && (
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-[260px_1fr]">
-        {/* Preset list */}
-        <div className="space-y-1.5">
-          {presets.map((preset) => (
-            <button
-              key={preset.id}
-              onClick={() => setSelectedId(preset.id)}
-              className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                selectedId === preset.id
-                  ? 'border-accent bg-accent-light text-text'
-                  : 'border-border bg-surface text-muted hover:bg-surface-2'
-              }`}
-            >
-              <span className="truncate">{preset.name}</span>
-              {preset.is_active && <span className="h-2 w-2 flex-none rounded-full bg-accent" title="Active" />}
-            </button>
-          ))}
-          {presets.length === 0 && <p className="text-sm text-faint">No presets yet.</p>}
+      {widgetTab === 'home' && (
+        <HomeBrowseHubSection onOpen={(browseKind) => setScreen({ kind: 'browse-hub', browseKind })} />
+      )}
+
+      <WidgetGrid
+        items={gridItems}
+        folders={folders}
+        activeTab={widgetTab}
+        mode={mode}
+        onSelectCollection={(c) => setScreen({ kind: 'editor', collectionId: c.id })}
+        onAddWidget={handleAddWidget}
+        onDeleteCard={handleDeleteCard}
+        onReorderCard={handleReorderCard}
+      />
+
+      {mode === 'preset' && showAddPanel && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-border-strong bg-surface p-4">
+          <select
+            value={addExistingId}
+            onChange={(e) => setAddExistingId(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
+          >
+            <option value="">Choose an existing widget…</option>
+            {availableForPreset.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId}>+ Add existing</Button>
+          <span className="text-xs text-faint">or</span>
+          <Button size="sm" variant="ghost" onClick={createAndAddToPreset}>+ Create new</Button>
+          <Button size="sm" variant="ghost" onClick={() => setShowAddPanel(false)}>Cancel</Button>
         </div>
-
-        {/* Editor */}
-        {selected ? (
-          <div className="space-y-6">
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-faint">Name</span>
-                  <input
-                    value={selected.name}
-                    onChange={(e) => updatePreset({ name: e.target.value })}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-faint">Slug</span>
-                  <input
-                    value={selected.slug}
-                    onChange={(e) => updatePreset({ slug: e.target.value })}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 font-mono text-sm text-text focus:border-accent focus:outline-none"
-                  />
-                </label>
-                <label className="block sm:col-span-2">
-                  <span className="mb-1 block text-xs font-medium text-faint">Description</span>
-                  <input
-                    value={selected.description ?? ''}
-                    onChange={(e) => updatePreset({ description: e.target.value || null })}
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-faint">Locale tag</span>
-                  <input
-                    value={selected.locale_tag ?? ''}
-                    onChange={(e) => updatePreset({ locale_tag: e.target.value || null })}
-                    placeholder="ar, tr, asian…"
-                    className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 font-mono text-sm text-text placeholder:text-faint focus:border-accent focus:outline-none"
-                  />
-                </label>
-                <div className="flex items-end gap-2">
-                  <span className="text-xs font-medium text-faint">Active</span>
-                  <Toggle on={selected.is_active} onChange={(v) => updatePreset({ is_active: v })} />
-                </div>
-              </div>
-              <div className="mt-4 flex justify-end border-t border-border pt-4">
-                <Button variant="danger" size="sm" onClick={deletePreset}>
-                  Delete preset
-                </Button>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-border bg-surface p-5">
-              <h2 className="mb-3 text-sm font-semibold text-text">Widgets in this preset</h2>
-              <div className="space-y-2">
-                {items.map((item, index) => {
-                  if (item.data_source.kind !== 'collection' || !item.data_source.collectionId) {
-                    return (
-                      <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-                        <span className="flex-1 truncate text-sm italic text-faint" title="This item's data source isn't a recognized collection reference">
-                          Unsupported item
-                        </span>
-                        <button onClick={() => removeItem(item)} className="text-faint hover:text-red-400" title="Remove">
-                          ×
-                        </button>
-                      </div>
-                    );
-                  }
-                  return (
-                  <div key={item.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2">
-                    <span className="flex-1 truncate text-sm text-text">{collectionName(item.data_source.collectionId)}</span>
-                    <select
-                      value={item.media_type ?? ''}
-                      onChange={(e) => setItemMediaType(item, (e.target.value || null) as HomePresetItem['media_type'])}
-                      className="rounded-lg border border-border bg-bg px-2 py-1 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
-                    >
-                      {MEDIA_TYPES.map((mt) => (
-                        <option key={mt.label} value={mt.value ?? ''}>
-                          {mt.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={item.style}
-                      onChange={(e) => setItemStyle(item, e.target.value)}
-                      className="rounded-lg border border-border bg-bg px-2 py-1 font-mono text-[11px] text-text focus:border-accent focus:outline-none"
-                    >
-                      {STYLES.map((style) => (
-                        <option key={style} value={style}>
-                          {style}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => moveItem(index, -1)}
-                      disabled={index === 0}
-                      className="text-faint hover:text-accent disabled:opacity-30"
-                      title="Move up"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      onClick={() => moveItem(index, 1)}
-                      disabled={index === items.length - 1}
-                      className="text-faint hover:text-accent disabled:opacity-30"
-                      title="Move down"
-                    >
-                      ↓
-                    </button>
-                    <button onClick={() => removeItem(item)} className="text-faint hover:text-red-400" title="Remove">
-                      ×
-                    </button>
-                  </div>
-                  );
-                })}
-                {items.length === 0 && <p className="text-sm text-faint">No widgets in this preset yet.</p>}
-              </div>
-
-              <div className="mt-4 flex items-center gap-2 border-t border-border pt-4">
-                <select
-                  value={addCollectionId}
-                  onChange={(e) => setAddCollectionId(e.target.value)}
-                  className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
-                >
-                  <option value="">Choose a collection…</option>
-                  {availableCollections.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-                <Button size="sm" onClick={addItem} disabled={!addCollectionId}>
-                  + Add
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-faint">Select a preset, or create a new one.</p>
-        )}
-      </div>
       )}
     </AppShell>
   );

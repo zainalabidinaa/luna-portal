@@ -281,7 +281,7 @@ export default function CatalogPage() {
     const name = prompt('Folder name')?.trim();
     if (!name) return;
     const { data } = await supabase.from('folders').insert({
-      collection_id: selectedId, name, sort_order: folders.length, tile_shape: 'POSTER', enabled: true,
+      collection_id: selectedId, name, sort_order: folders.length, tile_shape: 'poster', enabled: true,
     }).select().single();
     if (data) { setFolders((p) => [...p, data as Folder]); setAllFolders((p) => [...p, data as Folder]); }
   }

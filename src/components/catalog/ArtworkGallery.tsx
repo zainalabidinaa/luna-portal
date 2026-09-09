@@ -20,7 +20,12 @@ const SLOTS: Slot[] = [
   { field: 'hero_video_url', label: 'Hero video', kind: 'video', hint: 'Looping background clip (mp4)' },
 ];
 
-const TILE_SHAPES = ['POSTER', 'LANDSCAPE', 'SQUARE'];
+// Lowercase — must match `PosterShape`'s raw values in MoonlitCore
+// (Models/MetaModels.swift), which the Mac/iOS apps decode case-sensitively.
+// Older rows saved as 'POSTER'/'LANDSCAPE' before this fix silently miss
+// that match and fall back to `.landscape` on-device — see the one-time
+// lowercase-existing-rows pass in supabase/migrations.
+const TILE_SHAPES = ['poster', 'landscape', 'square'];
 
 interface Props {
   folder: Folder;
