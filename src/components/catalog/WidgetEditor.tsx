@@ -158,9 +158,13 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
         />
       )}
 
-      {!isLeaf && (
-        <div className="mt-5 border-t border-dashed border-border-strong pt-5">
-          {composerParentId === currentFolderId ? (
+      <div className="mt-5 border-t border-dashed border-border-strong pt-5">
+        {isLeaf && (sourcesByFolder[currentFolderId ?? '']?.length || catalogsByFolder[currentFolderId ?? '']?.length) ? (
+          <p className="mb-2.5 text-[11.5px] text-faint">
+            Adding a sub-folder here turns this into a hub — its own sources above stop being used directly; each sub-folder gets its own instead.
+          </p>
+        ) : null}
+        {composerParentId === currentFolderId ? (
             <AddFolderComposer
               onCancel={() => setComposerParentId(undefined)}
               onSave={async (name) => {
@@ -177,8 +181,8 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
                 setImportParentId(undefined);
               }}
             />
-          ) : (
-            <div className="flex flex-wrap gap-2">
+        ) : (
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setComposerParentId(currentFolderId)}
               className="rounded-lg border border-dashed border-border-strong px-3.5 py-2.5 text-[12.5px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
@@ -191,10 +195,9 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
             >
               + Import folder from a collection
             </button>
-            </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
