@@ -80,10 +80,6 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
   const currentFolder = currentFolderId ? folders.find((f) => f.id === currentFolderId) ?? null : null;
   const currentChildren = childrenOf(currentFolderId);
   const isRoot = path.length === 0;
-  // A folder with no child folders of its own is a "leaf" — it's where
-  // content sources actually attach (folder_sources/folder_catalogs), the
-  // real-schema equivalent of the mockup's "standard" node kind.
-  const isLeaf = !isRoot && currentChildren.length === 0;
 
   function crumbName(id: string): string {
     return folders.find((f) => f.id === id)?.name ?? '…';
@@ -127,7 +123,12 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
         </div>
       )}
 
-      {isLeaf && currentFolder ? (
+      {/* A folder's own direct content sources and its sub-folders aren't
+          mutually exclusive — Horror can have its own addon catalogs AND a
+          "Slashers"/"Supernatural" sub-folder underneath, both live at once.
+          Shown for any non-root folder, regardless of whether it has
+          children yet. */}
+      {!isRoot && currentFolder && (
         <FolderSourceEditor
           folder={currentFolder}
           sources={sourcesByFolder[currentFolder.id] ?? []}
@@ -144,26 +145,24 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
               : undefined
           }
         />
-      ) : (
-        <FolderBody
-          children={currentChildren}
-          allFolders={folders}
-          bodyView={bodyView}
-          onChangeBodyView={setBodyView}
-          onDrillIn={(id) => setPath((p) => [...p, id])}
-          onDelete={deleteFolder}
-          onReorder={(draggedId, targetId, zone) => reorderFolderSiblings(draggedId, targetId, zone, currentFolderId)}
-          onSaveShape={(id, shape) => saveFolderArtwork(id, { tile_shape: shape })}
-          onEditArtwork={setArtworkFolderId}
-        />
       )}
 
+      {!isRoot && currentChildren.length > 0 && (
+        <p className="mb-2.5 mt-6 font-mono text-[10px] uppercase tracking-widest text-faint">Sub-folders</p>
+      )}
+      <FolderBody
+        children={currentChildren}
+        allFolders={folders}
+        bodyView={bodyView}
+        onChangeBodyView={setBodyView}
+        onDrillIn={(id) => setPath((p) => [...p, id])}
+        onDelete={deleteFolder}
+        onReorder={(draggedId, targetId, zone) => reorderFolderSiblings(draggedId, targetId, zone, currentFolderId)}
+        onSaveShape={(id, shape) => saveFolderArtwork(id, { tile_shape: shape })}
+        onEditArtwork={setArtworkFolderId}
+      />
+
       <div className="mt-5 border-t border-dashed border-border-strong pt-5">
-        {isLeaf && (sourcesByFolder[currentFolderId ?? '']?.length || catalogsByFolder[currentFolderId ?? '']?.length) ? (
-          <p className="mb-2.5 text-[11.5px] text-faint">
-            Adding a sub-folder here turns this into a hub — its own sources above stop being used directly; each sub-folder gets its own instead.
-          </p>
-        ) : null}
         {composerParentId === currentFolderId ? (
             <AddFolderComposer
               onCancel={() => setComposerParentId(undefined)}
