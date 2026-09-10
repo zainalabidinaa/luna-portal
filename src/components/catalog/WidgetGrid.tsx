@@ -65,6 +65,7 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
             item={item}
             childFolders={folders.filter((f) => f.collection_id === item.collection.id && !f.parent_folder_id)}
             mode={mode}
+            isHomeTab={activeTab === 'home'}
             onClick={() => onSelectCollection(item.collection)}
             onDelete={() => onDeleteCard(item)}
             onDragStart={() => setDragKey(item.key)}
@@ -92,11 +93,12 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
 }
 
 function WidgetCard({
-  item, childFolders, mode, onClick, onDelete, onDragStart, onDrop,
+  item, childFolders, mode, isHomeTab, onClick, onDelete, onDragStart, onDrop,
 }: {
   item: WidgetCardItem;
   childFolders: Folder[];
   mode: 'all' | 'preset';
+  isHomeTab: boolean;
   onClick: () => void;
   onDelete: () => void;
   onDragStart: () => void;
@@ -109,9 +111,16 @@ function WidgetCard({
   // Row Classic / Hero / Card Stack / Row Numbered). "All widgets" mode has
   // no style (it's not a property of the collection itself), so it falls
   // back to the structural description instead.
+  //
+  // "Hardcoded UI" is only true of Home's genre/language tile strip
+  // (MacHomeView's homeGenres/homeLanguages, a one-off SwiftUI view with no
+  // tie to `collections` at all). A Movies/Series widget with
+  // display_section === 'hub' renders through the same generic
+  // CatalogRepository.displayRows group-tile path as everything else, so it
+  // gets the plain folder-count label instead of the misleading one.
   const subtitle = item.style
     ? STYLE_LABELS[item.style] ?? item.style
-    : collection.display_section === 'hub' ? 'Hub · hardcoded UI'
+    : collection.display_section === 'hub' ? (isHomeTab ? 'Hub · hardcoded UI' : `Hub · ${folderCount} folders`)
     : collection.display_section === 'rows' ? 'Rows'
     : folderCount >= 2 ? `Hub · ${folderCount} folders`
     : folderCount === 1 ? 'Folder · content row' : 'Empty';
