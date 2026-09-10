@@ -85,6 +85,43 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
     return folders.find((f) => f.id === id)?.name ?? '…';
   }
 
+  const addFolderActions = (
+    composerParentId === currentFolderId ? (
+      <AddFolderComposer
+        allowBulk={currentChildren.length === 0}
+        onCancel={() => setComposerParentId(undefined)}
+        onSave={async (names) => {
+          for (const n of names) await addFolder(n, currentFolderId);
+          setComposerParentId(undefined);
+        }}
+      />
+    ) : importParentId === currentFolderId ? (
+      <ImportFolderPanel
+        excludeCollectionId={collectionId}
+        onCancel={() => setImportParentId(undefined)}
+        onImport={async (sourceFolderId) => {
+          await importFolder(sourceFolderId, currentFolderId);
+          setImportParentId(undefined);
+        }}
+      />
+    ) : (
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setComposerParentId(currentFolderId)}
+          className="rounded-lg border border-dashed border-border-strong px-3.5 py-2.5 text-[12.5px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+        >
+          + Add folder
+        </button>
+        <button
+          onClick={() => setImportParentId(currentFolderId)}
+          className="rounded-lg border border-dashed border-border-strong px-3.5 py-2.5 text-[12.5px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+        >
+          + Import folder from a collection
+        </button>
+      </div>
+    )
+  );
+
   return (
     <div>
       <button onClick={onBack} className="mb-4 inline-flex items-center gap-1.5 text-[12.5px] text-muted hover:text-accent">
@@ -150,6 +187,9 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
       {!isRoot && currentChildren.length > 0 && (
         <p className="mb-2.5 mt-6 font-mono text-[10px] uppercase tracking-widest text-faint">Sub-folders</p>
       )}
+
+      {currentChildren.length === 0 && addFolderActions}
+
       <FolderBody
         children={currentChildren}
         allFolders={folders}
@@ -164,42 +204,11 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
         onEditArtwork={setArtworkFolderId}
       />
 
-      <div className="mt-5 border-t border-dashed border-border-strong pt-5">
-        {composerParentId === currentFolderId ? (
-            <AddFolderComposer
-              allowBulk={currentChildren.length === 0}
-              onCancel={() => setComposerParentId(undefined)}
-              onSave={async (names) => {
-                for (const n of names) await addFolder(n, currentFolderId);
-                setComposerParentId(undefined);
-              }}
-            />
-          ) : importParentId === currentFolderId ? (
-            <ImportFolderPanel
-              excludeCollectionId={collectionId}
-              onCancel={() => setImportParentId(undefined)}
-              onImport={async (sourceFolderId) => {
-                await importFolder(sourceFolderId, currentFolderId);
-                setImportParentId(undefined);
-              }}
-            />
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setComposerParentId(currentFolderId)}
-              className="rounded-lg border border-dashed border-border-strong px-3.5 py-2.5 text-[12.5px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
-            >
-              + Add folder
-            </button>
-            <button
-              onClick={() => setImportParentId(currentFolderId)}
-              className="rounded-lg border border-dashed border-border-strong px-3.5 py-2.5 text-[12.5px] font-medium text-muted transition-colors hover:border-accent hover:text-accent"
-            >
-              + Import folder from a collection
-            </button>
-          </div>
-        )}
-      </div>
+      {currentChildren.length > 0 && (
+        <div className="mt-5 border-t border-dashed border-border-strong pt-5">
+          {addFolderActions}
+        </div>
+      )}
     </div>
   );
 }
