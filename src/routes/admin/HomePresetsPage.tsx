@@ -4,11 +4,22 @@ import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
 import { WidgetGrid, TAB_FLAG, type WidgetTab, type WidgetCardItem } from '../../components/catalog/WidgetGrid';
 import { WidgetEditor } from '../../components/catalog/WidgetEditor';
-import { HomeBrowseTilesEditorPanel } from '../../components/catalog/HomeBrowseHubSection';
 import type { Collection, Folder, HomePreset, HomePresetItem } from '../../types';
 
 function slugify(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+
+// Mirrors GenreCatalog.normalize (Packages/MoonlitCore/.../GenreCatalog.swift)
+// exactly — some collection names carry an invisible LRM/RLM/BOM prefix
+// character (a leftover from RTL-locale authoring), which breaks a plain
+// case-insensitive compare even though the visible name looks identical.
+function normalizeCollectionName(s: string): string {
+  return s
+    .replace(/[\u200E\u200F\uFEFF]/g, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
@@ -23,7 +34,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   );
 }
 
-type Screen = { kind: 'grid' } | { kind: 'editor'; collectionId: string } | { kind: 'browse-hub'; browseKind: 'genre' | 'language' };
+type Screen = { kind: 'grid' } | { kind: 'editor'; collectionId: string };
 
 export default function HomePresetsPage() {
   const [presets, setPresets] = useState<HomePreset[]>([]);
@@ -138,6 +149,15 @@ export default function HomePresetsPage() {
     .filter((x): x is WidgetCardItem => x !== null);
 
   const gridItems = mode === 'preset' ? presetTabItems : allTabItems;
+
+  // The real, content-bearing collections "Browse by Genre"/"Browse by
+  // Language" tiles open into — same collections GenreCatalog.genres(in:)/
+  // LanguageCatalog.languages(in:) already read on-device, each with real
+  // folders (one per genre/language) carrying real folder_sources/
+  // folder_catalogs, editable through the exact same WidgetEditor every
+  // other widget uses. No separate flat name-list editor needed anymore.
+  const genresCollection = collections.find((c) => normalizeCollectionName(c.name) === 'genres');
+  const languagesCollection = collections.find((c) => normalizeCollectionName(c.name) === 'languages');
 
   async function addNewWidget(): Promise<Collection | null> {
     const name = prompt('Widget name')?.trim();
@@ -275,14 +295,6 @@ export default function HomePresetsPage() {
     );
   }
 
-  if (screen.kind === 'browse-hub') {
-    return (
-      <AppShell>
-        <HomeBrowseTilesEditorPanel kind={screen.browseKind} onBack={() => setScreen({ kind: 'grid' })} />
-      </AppShell>
-    );
-  }
-
   return (
     <AppShell>
       <div className="mb-6 flex items-center justify-between">
@@ -374,7 +386,14 @@ export default function HomePresetsPage() {
         activeTab={widgetTab}
         mode={mode}
         onSelectCollection={(c) => setScreen({ kind: 'editor', collectionId: c.id })}
-        onOpenBrowseHub={(browseKind) => setScreen({ kind: 'browse-hub', browseKind })}
+        onOpenBrowseHub={(hub) => {
+          const collection = hub === 'genre' ? genresCollection : languagesCollection;
+          if (!collection) {
+            alert(`No "${hub === 'genre' ? 'Genres' : 'Languages'}" collection found to edit — create one from "All Widgets" first.`);
+            return;
+          }
+          setScreen({ kind: 'editor', collectionId: collection.id });
+        }}
         onAddWidget={handleAddWidget}
         onDeleteCard={handleDeleteCard}
         onReorderCard={handleReorderCard}

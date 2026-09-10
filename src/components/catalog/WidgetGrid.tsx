@@ -27,11 +27,13 @@ export function isOnWidgetTab(c: Collection, tab: WidgetTab): boolean {
  *  collection, or those two appearances would be indistinguishable.
  *
  *  `browseHub` cards ("Browse by Genre"/"Browse by Language") are
- *  preset-only (mode 'preset', Home tab) — they aren't collections at all
- *  (see HomeBrowseHubSection.tsx), but a real ordered `home_preset_items`
- *  row now (`data_source: {kind:'browseHub', hub:'genre'|'language'}`)
- *  instead of a hardcoded card pinned last outside this grid's own
- *  drag-and-drop/sort_order. */
+ *  preset-only (mode 'preset', Home tab) — they aren't collections
+ *  themselves, but a real ordered `home_preset_items` row
+ *  (`data_source: {kind:'browseHub', hub:'genre'|'language'}`) controlling
+ *  only where the strip sits among other widgets. Clicking one opens the
+ *  real "Genres"/"Languages" collection instead (see `onOpenBrowseHub`) —
+ *  that's where its actual content (one real folder per genre/language,
+ *  each with its own sources) lives, same as any other widget. */
 export type WidgetCardItem =
   | {
       key: string;
@@ -58,9 +60,10 @@ interface Props {
   activeTab: WidgetTab;
   mode: 'all' | 'preset';
   onSelectCollection: (c: Collection) => void;
-  /** Opens `HomeBrowseTilesEditorPanel` for a `browseHub` card's tile-name
-   *  editor — the only "click" behavior it has left, now that its position
-   *  is just drag-and-drop like everything else. */
+  /** Opens the real "Genres"/"Languages" collection in `WidgetEditor` for a
+   *  `browseHub` card — its own position in this grid is just
+   *  drag-and-drop like everything else; this is only for editing its
+   *  actual content (folders/sources/artwork). */
   onOpenBrowseHub: (hub: 'genre' | 'language') => void;
   onAddWidget: () => void;
   onDeleteCard: (item: WidgetCardItem) => void;
