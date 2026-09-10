@@ -157,6 +157,9 @@ export interface HomePresetItemDataSource {
   // instead of silently assuming collectionId exists.
   kind: string;
   collectionId?: string;
+  /** 'genre' | 'language' — only present when kind === 'browseHub'. Mirrors
+   *  WidgetDataSource.browseHub(hub:) in WidgetModels.swift. */
+  hub?: string;
 }
 
 export interface HomePresetItem {

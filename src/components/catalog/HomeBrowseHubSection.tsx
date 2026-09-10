@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useHomeBrowseTiles, type HomeBrowseTile } from '../../hooks/useHomeBrowseTiles';
-import { useHomeBrowseHubPosition } from '../../hooks/useHomeBrowseHubPosition';
 import { useSourceCollectionFolders, findFolderByName } from '../../hooks/useSourceCollectionFolders';
 import { useTMDBTileBackdrop } from '../../hooks/useTMDBTileBackdrop';
 import { HubTile } from './WidgetGrid';
@@ -20,8 +19,11 @@ const LANGUAGE_FLAG_EMOJI: Record<string, string> = {
  * supabase/migrations/20260912_home_browse_tiles.sql. These aren't
  * collections (MacHomeView.swift renders them from a flat name list, not
  * folders/catalogs) — a separate concept from the "Genres"/"Languages"
- * collections used elsewhere in the portal, so they don't fit the normal
- * WidgetGrid card model.
+ * collections used elsewhere in the portal. Their card in the "Your
+ * Widgets" grid (`WidgetGrid.BrowseHubCard`) opens `HomeBrowseTilesEditorPanel`
+ * below to edit the tile names themselves; their position among other
+ * widgets is just `home_preset_items.sort_order`, the same drag-and-drop
+ * ordering every other card already has — no separate position control.
  *
  * Tile art is a real TMDB backdrop, fetched with the exact same discover
  * query TMDBTileBackdropFetcher.swift uses for MacGenreTile/MacLanguageTile
@@ -30,93 +32,6 @@ const LANGUAGE_FLAG_EMOJI: Record<string, string> = {
  * separate design/CSS effort. Falls back to the Genres collection's curated
  * icon (genre) or a flag emoji (language) if TMDB has nothing.
  */
-export function HomeBrowseHubSection({ onOpen }: { onOpen: (kind: 'genre' | 'language') => void }) {
-  const { genres, languages, loading } = useHomeBrowseTiles();
-  const genreFolders = useSourceCollectionFolders('Genres');
-  const { insertAtIndex, setInsertAtIndex } = useHomeBrowseHubPosition();
-
-  if (loading) return null;
-
-  return (
-    <div className="mb-5 grid max-w-[420px] grid-cols-2 gap-3.5">
-      <BrowseCard
-        title="Browse by Genre" tiles={genres} kind="genre" genreFolders={genreFolders} onClick={() => onOpen('genre')}
-        insertAtIndex={insertAtIndex('genre')} onSetInsertAtIndex={(v) => setInsertAtIndex('genre', v)}
-      />
-      <BrowseCard
-        title="Browse by Language" tiles={languages} kind="language" genreFolders={genreFolders} onClick={() => onOpen('language')}
-        insertAtIndex={insertAtIndex('language')} onSetInsertAtIndex={(v) => setInsertAtIndex('language', v)}
-      />
-    </div>
-  );
-}
-
-function CardShell({ title, onClick, children, insertAtIndex, onSetInsertAtIndex }: {
-  title: string;
-  onClick: () => void;
-  children: React.ReactNode;
-  insertAtIndex: number | null;
-  onSetInsertAtIndex: (value: number | null) => void;
-}) {
-  return (
-    <div className="group relative overflow-hidden rounded-2xl border border-border bg-bg2 text-left transition-all hover:-translate-y-1 hover:border-accent">
-      <button onClick={onClick} className="relative block w-full text-left">
-        {children}
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(13,6,4,.8) 0%,rgba(13,6,4,.35) 32%,transparent 60%)' }} />
-        <div className="absolute inset-x-0 top-0 p-3">
-          <p className="truncate text-[15px] font-semibold text-white">{title}</p>
-          <p className="mt-0.5 text-[12px] text-white/60">Hub · Home only · hardcoded UI</p>
-        </div>
-      </button>
-      {/* Where this strip's card inserts into the "Your Widgets" ordered
-          list on device — empty/blank keeps it pinned last, the default
-          before this control existed. See useHomeBrowseHubPosition. */}
-      <div
-        className="relative z-10 flex items-center gap-2 border-t border-border bg-bg2 px-3 py-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <span className="text-[11px] text-faint">Position</span>
-        <input
-          type="number"
-          min={0}
-          value={insertAtIndex ?? ''}
-          onChange={(e) => {
-            const raw = e.target.value;
-            onSetInsertAtIndex(raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0));
-          }}
-          placeholder="Last"
-          className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-text outline-none focus:border-accent"
-        />
-        <span className="text-[10.5px] text-faint">row index, blank = last</span>
-      </div>
-    </div>
-  );
-}
-
-function BrowseCard({
-  title, tiles, kind, genreFolders, onClick, insertAtIndex, onSetInsertAtIndex,
-}: {
-  title: string;
-  tiles: HomeBrowseTile[];
-  kind: 'genre' | 'language';
-  genreFolders: Folder[];
-  onClick: () => void;
-  insertAtIndex: number | null;
-  onSetInsertAtIndex: (value: number | null) => void;
-}) {
-  const shown = tiles.slice(0, 4);
-  return (
-    <CardShell title={title} onClick={onClick} insertAtIndex={insertAtIndex} onSetInsertAtIndex={onSetInsertAtIndex}>
-      <div className="grid grid-cols-2 gap-0.5 bg-border">
-        {shown.map((t) => <BrowseTile key={t.id} tile={t} kind={kind} genreFolders={genreFolders} />)}
-        {Array.from({ length: Math.max(0, 4 - shown.length) }).map((_, i) => (
-          <div key={`pad-${i}`} className="aspect-[2/3] w-full bg-surface-2" />
-        ))}
-      </div>
-    </CardShell>
-  );
-}
-
 function BrowseTile({ tile, kind, genreFolders }: { tile: HomeBrowseTile; kind: 'genre' | 'language'; genreFolders: Folder[] }) {
   const backdrop = useTMDBTileBackdrop(kind, tile.name, tile.iso);
   if (backdrop) {

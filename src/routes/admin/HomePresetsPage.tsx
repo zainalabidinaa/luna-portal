@@ -4,7 +4,7 @@ import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
 import { WidgetGrid, TAB_FLAG, type WidgetTab, type WidgetCardItem } from '../../components/catalog/WidgetGrid';
 import { WidgetEditor } from '../../components/catalog/WidgetEditor';
-import { HomeBrowseHubSection, HomeBrowseTilesEditorPanel } from '../../components/catalog/HomeBrowseHubSection';
+import { HomeBrowseTilesEditorPanel } from '../../components/catalog/HomeBrowseHubSection';
 import type { Collection, Folder, HomePreset, HomePresetItem } from '../../types';
 
 function slugify(name: string) {
@@ -123,13 +123,17 @@ export default function HomePresetsPage() {
     .filter((c) => !c.parent_collection_id && !c.parent_folder_id)
     .filter((c) => { const { ios, mac } = TAB_FLAG[widgetTab]; return Boolean(c[ios]) || Boolean(c[mac]); })
     .sort((a, b) => a.sort_order - b.sort_order)
-    .map((c) => ({ key: c.id, collection: c }));
+    .map((c) => ({ key: c.id, kind: 'collection' as const, collection: c }));
 
   const presetTabItems: WidgetCardItem[] = presetItems
-    .map((item) => {
+    .map((item): WidgetCardItem | null => {
+      if (item.data_source.kind === 'browseHub') {
+        const hub = item.data_source.hub === 'language' ? 'language' : 'genre';
+        return { key: item.id, kind: 'browseHub', hub };
+      }
       const collectionId = item.data_source.kind === 'collection' ? item.data_source.collectionId : undefined;
       const collection = collectionId ? collections.find((c) => c.id === collectionId) : undefined;
-      return collection ? { key: item.id, collection } : null;
+      return collection ? { key: item.id, kind: 'collection', collection } : null;
     })
     .filter((x): x is WidgetCardItem => x !== null);
 
@@ -171,6 +175,26 @@ export default function HomePresetsPage() {
     setShowAddPanel(false);
   }
 
+  // Which of "Browse by Genre"/"Browse by Language" this preset's Home list
+  // doesn't already have a card for — each is a singleton per preset (one
+  // strip, not a repeatable widget), same as the portal's own hardcoded
+  // rendering always assumed.
+  const availableBrowseHubs: ('genre' | 'language')[] = (['genre', 'language'] as const).filter(
+    (hub) => !presetItems.some((i) => i.data_source.kind === 'browseHub' && i.data_source.hub === hub)
+  );
+
+  async function addBrowseHubToPreset(hub: 'genre' | 'language') {
+    if (!selectedPresetId) return;
+    const { data, error } = await supabase.from('home_preset_items').insert({
+      preset_id: selectedPresetId, tab: 'home',
+      data_source: { kind: 'browseHub', hub },
+      media_type: null, style: 'standard', sort_order: presetItems.length,
+    }).select().single();
+    if (error) { alert(error.message); return; }
+    setPresetItems((p) => [...p, data as HomePresetItem]);
+    setShowAddPanel(false);
+  }
+
   async function createAndAddToPreset() {
     if (!selectedPresetId) return;
     const created = await addNewWidget();
@@ -186,7 +210,10 @@ export default function HomePresetsPage() {
   }
 
   async function handleDeleteCard(item: WidgetCardItem) {
-    if (mode === 'all') {
+    // `browseHub` cards are preset-items-only — never reachable in "all"
+    // mode (see `WidgetCardItem`'s own doc comment) — so `mode === 'all'`
+    // here always means `item.kind === 'collection'`.
+    if (mode === 'all' && item.kind === 'collection') {
       await supabase.from('collections').delete().eq('id', item.collection.id);
       setCollections((p) => p.filter((c) => c.id !== item.collection.id));
     } else {
@@ -200,7 +227,10 @@ export default function HomePresetsPage() {
       const dragged = collections.find((c) => c.id === draggedKey);
       const target = collections.find((c) => c.id === targetKey);
       if (!dragged || !target) return;
-      const siblings = allTabItems.map((i) => i.collection).filter((c) => c.id !== draggedKey);
+      const siblings = allTabItems
+        .filter((i): i is Extract<WidgetCardItem, { kind: 'collection' }> => i.kind === 'collection')
+        .map((i) => i.collection)
+        .filter((c) => c.id !== draggedKey);
       const targetIdx = siblings.findIndex((c) => c.id === targetKey);
       if (targetIdx === -1) return;
       siblings.splice(zone === 'before' ? targetIdx : targetIdx + 1, 0, dragged);
@@ -338,16 +368,13 @@ export default function HomePresetsPage() {
         </div>
       )}
 
-      {widgetTab === 'home' && (
-        <HomeBrowseHubSection onOpen={(browseKind) => setScreen({ kind: 'browse-hub', browseKind })} />
-      )}
-
       <WidgetGrid
         items={gridItems}
         folders={folders}
         activeTab={widgetTab}
         mode={mode}
         onSelectCollection={(c) => setScreen({ kind: 'editor', collectionId: c.id })}
+        onOpenBrowseHub={(browseKind) => setScreen({ kind: 'browse-hub', browseKind })}
         onAddWidget={handleAddWidget}
         onDeleteCard={handleDeleteCard}
         onReorderCard={handleReorderCard}
@@ -366,6 +393,11 @@ export default function HomePresetsPage() {
           <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId}>+ Add existing</Button>
           <span className="text-xs text-faint">or</span>
           <Button size="sm" variant="ghost" onClick={createAndAddToPreset}>+ Create new</Button>
+          {widgetTab === 'home' && availableBrowseHubs.map((hub) => (
+            <Button key={hub} size="sm" variant="ghost" onClick={() => addBrowseHubToPreset(hub)}>
+              + Add "Browse by {hub === 'genre' ? 'Genre' : 'Language'}"
+            </Button>
+          ))}
           <Button size="sm" variant="ghost" onClick={() => setShowAddPanel(false)}>Cancel</Button>
         </div>
       )}

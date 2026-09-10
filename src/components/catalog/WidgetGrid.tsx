@@ -24,15 +24,25 @@ export function isOnWidgetTab(c: Collection, tab: WidgetTab): boolean {
  *  same collection can legitimately appear more than once across tabs/
  *  presets (e.g. a widget shown on both Home and Movies), so the card's
  *  identity for delete/reorder purposes must be the *item*, not the
- *  collection, or those two appearances would be indistinguishable. */
-export interface WidgetCardItem {
-  key: string;
-  collection: Collection;
-  /** The preset item's own render style (only meaningful in "preset" mode —
-   *  style is a property of a widget's *placement*, not of the collection
-   *  itself, so "all widgets" mode has no style to show). */
-  style?: string;
-}
+ *  collection, or those two appearances would be indistinguishable.
+ *
+ *  `browseHub` cards ("Browse by Genre"/"Browse by Language") are
+ *  preset-only (mode 'preset', Home tab) — they aren't collections at all
+ *  (see HomeBrowseHubSection.tsx), but a real ordered `home_preset_items`
+ *  row now (`data_source: {kind:'browseHub', hub:'genre'|'language'}`)
+ *  instead of a hardcoded card pinned last outside this grid's own
+ *  drag-and-drop/sort_order. */
+export type WidgetCardItem =
+  | {
+      key: string;
+      kind: 'collection';
+      collection: Collection;
+      /** The preset item's own render style (only meaningful in "preset"
+       *  mode — style is a property of a widget's *placement*, not of the
+       *  collection itself, so "all widgets" mode has no style to show). */
+      style?: string;
+    }
+  | { key: string; kind: 'browseHub'; hub: 'genre' | 'language' };
 
 const STYLE_LABELS: Record<string, string> = {
   standard: 'Row Classic',
@@ -48,12 +58,16 @@ interface Props {
   activeTab: WidgetTab;
   mode: 'all' | 'preset';
   onSelectCollection: (c: Collection) => void;
+  /** Opens `HomeBrowseTilesEditorPanel` for a `browseHub` card's tile-name
+   *  editor — the only "click" behavior it has left, now that its position
+   *  is just drag-and-drop like everything else. */
+  onOpenBrowseHub: (hub: 'genre' | 'language') => void;
   onAddWidget: () => void;
   onDeleteCard: (item: WidgetCardItem) => void;
   onReorderCard: (draggedKey: string, targetKey: string, zone: 'before' | 'after') => void;
 }
 
-export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection, onAddWidget, onDeleteCard, onReorderCard }: Props) {
+export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection, onOpenBrowseHub, onAddWidget, onDeleteCard, onReorderCard }: Props) {
   const [dragKey, setDragKey] = useState<string | null>(null);
 
   return (
@@ -63,10 +77,10 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
           <WidgetCard
             key={item.key}
             item={item}
-            childFolders={folders.filter((f) => f.collection_id === item.collection.id && !f.parent_folder_id)}
+            childFolders={item.kind === 'collection' ? folders.filter((f) => f.collection_id === item.collection.id && !f.parent_folder_id) : []}
             mode={mode}
             isHomeTab={activeTab === 'home'}
-            onClick={() => onSelectCollection(item.collection)}
+            onClick={item.kind === 'collection' ? () => onSelectCollection(item.collection) : () => onOpenBrowseHub(item.hub)}
             onDelete={() => onDeleteCard(item)}
             onDragStart={() => setDragKey(item.key)}
             onDrop={() => { if (dragKey && dragKey !== item.key) onReorderCard(dragKey, item.key, 'before'); setDragKey(null); }}
@@ -98,6 +112,11 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
   );
 }
 
+const BROWSE_HUB_LABELS: Record<'genre' | 'language', string> = {
+  genre: 'Browse by Genre',
+  language: 'Browse by Language',
+};
+
 function WidgetCard({
   item, childFolders, mode, isHomeTab, onClick, onDelete, onDragStart, onDrop, onMoveUp, onMoveDown,
 }: {
@@ -105,13 +124,27 @@ function WidgetCard({
   childFolders: Folder[];
   mode: 'all' | 'preset';
   isHomeTab: boolean;
-  onClick: () => void;
+  onClick?: () => void;
   onDelete: () => void;
   onDragStart: () => void;
   onDrop: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
 }) {
+  if (item.kind === 'browseHub') {
+    return (
+      <BrowseHubCard
+        hub={item.hub}
+        onClick={onClick}
+        onDelete={onDelete}
+        onDragStart={onDragStart}
+        onDrop={onDrop}
+        onMoveUp={onMoveUp}
+        onMoveDown={onMoveDown}
+      />
+    );
+  }
+
   const { collection } = item;
   const folderCount = childFolders.length;
   // In "preset" mode the item's own placement style is the more useful
@@ -212,6 +245,67 @@ function WidgetCard({
       >
         🗑
       </button>
+    </div>
+  );
+}
+
+// "Browse by Genre"/"Browse by Language" are a hardcoded SwiftUI tile strip
+// on-device (MacHomeView's homeGenres/homeLanguages), not a real collection —
+// this card exists purely so admins can drag/reorder them alongside other
+// Home widgets; there's nothing to click through to.
+function BrowseHubCard({
+  hub, onClick, onDelete, onDragStart, onDrop, onMoveUp, onMoveDown,
+}: {
+  hub: 'genre' | 'language';
+  onClick?: () => void;
+  onDelete: () => void;
+  onDragStart: () => void;
+  onDrop: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+}) {
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={onDrop}
+      className="group relative flex aspect-square flex-col justify-between overflow-hidden rounded-2xl border border-border bg-bg2 p-3 transition-all hover:-translate-y-1 hover:border-accent"
+    >
+      <button onClick={onClick} className="block w-full text-left" title="Edit tile names">
+        <p className="truncate text-[15px] font-semibold text-white">{BROWSE_HUB_LABELS[hub]}</p>
+        <p className="mt-0.5 text-[12px] text-white/60">Hub · hardcoded UI</p>
+      </button>
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1.5">
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
+            disabled={!onMoveUp}
+            title="Move earlier"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            ↑
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
+            disabled={!onMoveDown}
+            title="Move later"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            ↓
+          </button>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (confirm(`Remove "${BROWSE_HUB_LABELS[hub]}" from this preset's Home list?`)) onDelete();
+          }}
+          title="Remove from this preset"
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75"
+        >
+          🗑
+        </button>
+      </div>
     </div>
   );
 }
