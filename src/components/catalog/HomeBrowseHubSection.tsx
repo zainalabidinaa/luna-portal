@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useHomeBrowseTiles, type HomeBrowseTile } from '../../hooks/useHomeBrowseTiles';
+import { useHomeBrowseHubPosition } from '../../hooks/useHomeBrowseHubPosition';
 import { useSourceCollectionFolders, findFolderByName } from '../../hooks/useSourceCollectionFolders';
 import { useTMDBTileBackdrop } from '../../hooks/useTMDBTileBackdrop';
 import { HubTile } from './WidgetGrid';
@@ -32,42 +33,80 @@ const LANGUAGE_FLAG_EMOJI: Record<string, string> = {
 export function HomeBrowseHubSection({ onOpen }: { onOpen: (kind: 'genre' | 'language') => void }) {
   const { genres, languages, loading } = useHomeBrowseTiles();
   const genreFolders = useSourceCollectionFolders('Genres');
+  const { insertAtIndex, setInsertAtIndex } = useHomeBrowseHubPosition();
 
   if (loading) return null;
 
   return (
-    <div className="mb-5 grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]">
-      <BrowseCard title="Browse by Genre" tiles={genres} kind="genre" genreFolders={genreFolders} onClick={() => onOpen('genre')} />
-      <BrowseCard title="Browse by Language" tiles={languages} kind="language" genreFolders={genreFolders} onClick={() => onOpen('language')} />
+    <div className="mb-5 grid max-w-[420px] grid-cols-2 gap-3.5">
+      <BrowseCard
+        title="Browse by Genre" tiles={genres} kind="genre" genreFolders={genreFolders} onClick={() => onOpen('genre')}
+        insertAtIndex={insertAtIndex('genre')} onSetInsertAtIndex={(v) => setInsertAtIndex('genre', v)}
+      />
+      <BrowseCard
+        title="Browse by Language" tiles={languages} kind="language" genreFolders={genreFolders} onClick={() => onOpen('language')}
+        insertAtIndex={insertAtIndex('language')} onSetInsertAtIndex={(v) => setInsertAtIndex('language', v)}
+      />
     </div>
   );
 }
 
-function CardShell({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function CardShell({ title, onClick, children, insertAtIndex, onSetInsertAtIndex }: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  insertAtIndex: number | null;
+  onSetInsertAtIndex: (value: number | null) => void;
+}) {
   return (
-    <button onClick={onClick} className="group relative overflow-hidden rounded-2xl border border-border bg-bg2 text-left transition-all hover:-translate-y-1 hover:border-accent">
-      {children}
-      <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(13,6,4,.8) 0%,rgba(13,6,4,.35) 32%,transparent 60%)' }} />
-      <div className="absolute inset-x-0 top-0 p-3">
-        <p className="truncate text-[15px] font-semibold text-white">{title}</p>
-        <p className="mt-0.5 text-[12px] text-white/60">Hub · Home only · hardcoded UI</p>
+    <div className="group relative overflow-hidden rounded-2xl border border-border bg-bg2 text-left transition-all hover:-translate-y-1 hover:border-accent">
+      <button onClick={onClick} className="relative block w-full text-left">
+        {children}
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(13,6,4,.8) 0%,rgba(13,6,4,.35) 32%,transparent 60%)' }} />
+        <div className="absolute inset-x-0 top-0 p-3">
+          <p className="truncate text-[15px] font-semibold text-white">{title}</p>
+          <p className="mt-0.5 text-[12px] text-white/60">Hub · Home only · hardcoded UI</p>
+        </div>
+      </button>
+      {/* Where this strip's card inserts into the "Your Widgets" ordered
+          list on device — empty/blank keeps it pinned last, the default
+          before this control existed. See useHomeBrowseHubPosition. */}
+      <div
+        className="relative z-10 flex items-center gap-2 border-t border-border bg-bg2 px-3 py-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span className="text-[11px] text-faint">Position</span>
+        <input
+          type="number"
+          min={0}
+          value={insertAtIndex ?? ''}
+          onChange={(e) => {
+            const raw = e.target.value;
+            onSetInsertAtIndex(raw === '' ? null : Math.max(0, parseInt(raw, 10) || 0));
+          }}
+          placeholder="Last"
+          className="w-16 rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-text outline-none focus:border-accent"
+        />
+        <span className="text-[10.5px] text-faint">row index, blank = last</span>
       </div>
-    </button>
+    </div>
   );
 }
 
 function BrowseCard({
-  title, tiles, kind, genreFolders, onClick,
+  title, tiles, kind, genreFolders, onClick, insertAtIndex, onSetInsertAtIndex,
 }: {
   title: string;
   tiles: HomeBrowseTile[];
   kind: 'genre' | 'language';
   genreFolders: Folder[];
   onClick: () => void;
+  insertAtIndex: number | null;
+  onSetInsertAtIndex: (value: number | null) => void;
 }) {
   const shown = tiles.slice(0, 4);
   return (
-    <CardShell title={title} onClick={onClick}>
+    <CardShell title={title} onClick={onClick} insertAtIndex={insertAtIndex} onSetInsertAtIndex={onSetInsertAtIndex}>
       <div className="grid grid-cols-2 gap-0.5 bg-border">
         {shown.map((t) => <BrowseTile key={t.id} tile={t} kind={kind} genreFolders={genreFolders} />)}
         {Array.from({ length: Math.max(0, 4 - shown.length) }).map((_, i) => (
