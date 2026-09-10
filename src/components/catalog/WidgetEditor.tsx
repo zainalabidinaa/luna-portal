@@ -4,6 +4,7 @@ import { useFolderPreviewPosters } from '../../hooks/useFolderPreviewPosters';
 import { useFolderSearch } from '../../hooks/useFolderSearch';
 import { useAddonCatalogSearch, type AddonCatalogEntry } from '../../hooks/useAddonCatalogSearch';
 import { FallbackPosterImg } from './FallbackPosterImg';
+import { ArtworkGallery } from './ArtworkGallery';
 import { TAB_FLAG, TILE_SHAPES, tileAspectClass, type WidgetTab } from './WidgetGrid';
 import { LANGUAGE_ISO_BY_FOLDER_NAME, LanguageHubRailsEditor } from './LanguageHubRailsEditor';
 import type { Folder, FolderSource, FolderCatalog } from '../../types';
@@ -51,9 +52,25 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
   const [bodyView, setBodyView] = useState<'rows' | 'list'>('rows');
   const [composerParentId, setComposerParentId] = useState<string | null | undefined>(undefined); // undefined = closed
   const [importParentId, setImportParentId] = useState<string | null | undefined>(undefined); // undefined = closed
+  // Set to open `ArtworkGallery` for one folder — independent of `path`'s
+  // drill-in navigation, since the folder whose art needs editing is often
+  // a *child* being looked at, not the one currently drilled into (its
+  // cover_image/hero_backdrop is what renders as ITS OWN tile one level up).
+  const [artworkFolderId, setArtworkFolderId] = useState<string | null>(null);
 
   if (loading || !collection) {
     return <p className="py-16 text-center text-sm text-muted">Loading widget…</p>;
+  }
+
+  const artworkFolder = artworkFolderId ? folders.find((f) => f.id === artworkFolderId) ?? null : null;
+  if (artworkFolder) {
+    return (
+      <ArtworkGallery
+        folder={artworkFolder}
+        onBack={() => setArtworkFolderId(null)}
+        onSave={(patch) => saveFolderArtwork(artworkFolder.id, patch)}
+      />
+    );
   }
 
   const childrenOf = (parentFolderId: string | null) =>
@@ -120,6 +137,7 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
           onAddCatalog={(catalogId, mediaType, genre) => addCatalog(currentFolder.id, catalogId, mediaType, genre)}
           onDeleteCatalog={(id) => deleteCatalog(currentFolder.id, id)}
           onSaveShape={(shape) => saveFolderArtwork(currentFolder.id, { tile_shape: shape })}
+          onEditArtwork={() => setArtworkFolderId(currentFolder.id)}
           languageIso={
             collection.name.trim().toLowerCase() === 'languages'
               ? LANGUAGE_ISO_BY_FOLDER_NAME[currentFolder.name.trim().toLowerCase()]
@@ -136,6 +154,7 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
           onDelete={deleteFolder}
           onReorder={(draggedId, targetId, zone) => reorderFolderSiblings(draggedId, targetId, zone, currentFolderId)}
           onSaveShape={(id, shape) => saveFolderArtwork(id, { tile_shape: shape })}
+          onEditArtwork={setArtworkFolderId}
         />
       )}
 
@@ -267,7 +286,7 @@ function RootHeader({
 }
 
 function FolderBody({
-  children, allFolders, bodyView, onChangeBodyView, onDrillIn, onDelete, onReorder, onSaveShape,
+  children, allFolders, bodyView, onChangeBodyView, onDrillIn, onDelete, onReorder, onSaveShape, onEditArtwork,
 }: {
   children: Folder[];
   allFolders: Folder[];
@@ -277,6 +296,7 @@ function FolderBody({
   onDelete: (id: string) => void;
   onReorder: (draggedId: string, targetId: string, zone: 'before' | 'after') => void;
   onSaveShape: (folderId: string, shape: string) => void;
+  onEditArtwork: (folderId: string) => void;
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const grandchildCount = (id: string) => allFolders.filter((f) => f.parent_folder_id === id).length;
@@ -317,6 +337,9 @@ function FolderBody({
                 <span className="flex-1 truncate text-[13.5px] text-text">{c.name}</span>
                 <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : 'Content row'}</span>
                 <TileShapePicker value={c.tile_shape} onChange={(shape) => onSaveShape(c.id, shape)} />
+                <button onClick={() => onEditArtwork(c.id)} className="rounded-md border border-border-strong px-2 py-1 font-mono text-[10.5px] text-muted hover:text-accent">
+                  Art
+                </button>
                 <button onClick={() => onDrillIn(c.id)} className="rounded-md border border-border-strong px-2 py-1 font-mono text-[10.5px] text-muted hover:text-accent">
                   {gc > 0 ? 'Open' : 'Edit source'}
                 </button>
@@ -356,6 +379,13 @@ function FolderBody({
                   <span className="relative z-[1] font-body text-[12.5px] font-semibold leading-tight text-white">{c.name}</span>
                 </button>
                 <button
+                  onClick={() => onEditArtwork(c.id)}
+                  title="Edit artwork"
+                  className="absolute right-8 top-1.5 z-[2] flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[12px] text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100"
+                >
+                  🖼
+                </button>
+                <button
                   onClick={() => { if (confirm(`Delete "${c.name}"?`)) onDelete(c.id); }}
                   className="absolute right-1.5 top-1.5 z-[2] flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[12px] text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100"
                 >
@@ -389,6 +419,7 @@ function FolderBody({
                     <span className="font-display text-[15px] font-bold text-text">{c.name}</span>
                     <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : 'Content row'}</span>
                   </button>
+                  <button onClick={() => onEditArtwork(c.id)} className="text-[11px] text-faint hover:text-accent">Art</button>
                   <button onClick={() => { if (confirm(`Delete "${c.name}"?`)) onDelete(c.id); }} className="text-[11px] text-faint hover:text-red-400">Delete</button>
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
@@ -396,16 +427,24 @@ function FolderBody({
                     ? grandchildren.map((g) => {
                         const image = g.cover_image ?? g.hero_backdrop;
                         return (
-                          <button
-                            key={g.id}
-                            onClick={() => onDrillIn(c.id)}
-                            className="relative flex h-[130px] w-[92px] flex-none items-end overflow-hidden rounded-lg p-2 text-left"
-                            style={image ? undefined : { background: gradientFor(g.id) }}
-                          >
-                            {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
-                            <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.8))' }} />
-                            <span className="relative z-[1] font-body text-[11px] font-semibold leading-tight text-white">{g.name}</span>
-                          </button>
+                          <div key={g.id} className="group relative flex-none">
+                            <button
+                              onClick={() => onDrillIn(c.id)}
+                              className="relative flex h-[130px] w-[92px] items-end overflow-hidden rounded-lg p-2 text-left"
+                              style={image ? undefined : { background: gradientFor(g.id) }}
+                            >
+                              {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+                              <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.8))' }} />
+                              <span className="relative z-[1] font-body text-[11px] font-semibold leading-tight text-white">{g.name}</span>
+                            </button>
+                            <button
+                              onClick={() => onEditArtwork(g.id)}
+                              title="Edit artwork"
+                              className="absolute right-1 top-1 z-[2] flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-[10px] text-white opacity-0 transition-opacity hover:bg-black/75 group-hover:opacity-100"
+                            >
+                              🖼
+                            </button>
+                          </div>
                         );
                       })
                     : <LeafRowPreview folderId={c.id} />}
@@ -623,7 +662,7 @@ function TileShapePicker({ value, onChange, size = 'md' }: { value: string; onCh
 }
 
 function FolderSourceEditor({
-  folder, sources, catalogs, onAddSource, onDeleteSource, onAddCatalog, onDeleteCatalog, onSaveShape, languageIso,
+  folder, sources, catalogs, onAddSource, onDeleteSource, onAddCatalog, onDeleteCatalog, onSaveShape, onEditArtwork, languageIso,
 }: {
   folder: Folder;
   sources: FolderSource[];
@@ -633,6 +672,7 @@ function FolderSourceEditor({
   onAddCatalog: (catalogId: string, mediaType: string, genre: string | null) => void;
   onDeleteCatalog: (id: string) => void;
   onSaveShape: (shape: string) => void;
+  onEditArtwork: () => void;
   languageIso?: string;
 }) {
   const [kind, setKind] = useState<'catalog' | 'source'>('catalog');
@@ -645,7 +685,15 @@ function FolderSourceEditor({
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <p className="font-mono text-[10px] uppercase tracking-widest text-faint">Tile shape</p>
-        <TileShapePicker value={folder.tile_shape} onChange={onSaveShape} />
+        <div className="flex items-center gap-2">
+          <TileShapePicker value={folder.tile_shape} onChange={onSaveShape} />
+          <button
+            onClick={onEditArtwork}
+            className="rounded-lg border border-border-strong px-3 py-1.5 text-[12px] text-muted hover:border-accent hover:text-accent"
+          >
+            Edit artwork
+          </button>
+        </div>
       </div>
       <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-faint">Content sources</p>
       <div className="mb-4 flex flex-col gap-1.5">
