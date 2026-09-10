@@ -167,9 +167,10 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
       <div className="mt-5 border-t border-dashed border-border-strong pt-5">
         {composerParentId === currentFolderId ? (
             <AddFolderComposer
+              allowBulk={currentChildren.length === 0}
               onCancel={() => setComposerParentId(undefined)}
-              onSave={async (name) => {
-                await addFolder(name, currentFolderId);
+              onSave={async (names) => {
+                for (const n of names) await addFolder(n, currentFolderId);
                 setComposerParentId(undefined);
               }}
             />
@@ -574,8 +575,43 @@ function ImportFolderPanel({
   );
 }
 
-function AddFolderComposer({ onSave, onCancel }: { onSave: (name: string) => void; onCancel: () => void }) {
+function AddFolderComposer({ onSave, onCancel, allowBulk }: {
+  onSave: (names: string[]) => void;
+  onCancel: () => void;
+  allowBulk: boolean;
+}) {
+  const [bulk, setBulk] = useState(false);
   const [name, setName] = useState('');
+  const [names, setNames] = useState('');
+
+  if (bulk) {
+    const parsed = names.split('\n').map((n) => n.trim()).filter(Boolean);
+    return (
+      <div className="flex max-w-md flex-col gap-2">
+        <textarea
+          autoFocus
+          value={names}
+          onChange={(e) => setNames(e.target.value)}
+          placeholder={'One folder name per line, e.g.\nAction\nHorror\nComedy'}
+          rows={6}
+          className="rounded-lg border border-border bg-bg2 px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
+        />
+        <div className="flex items-center justify-between">
+          <button onClick={() => setBulk(false)} className="text-[11.5px] text-muted hover:text-accent">← One at a time</button>
+          <div className="flex gap-2">
+            <button onClick={onCancel} className="rounded-lg border border-border-strong px-3 py-2 text-[12.5px] text-muted hover:text-text">Cancel</button>
+            <button
+              onClick={() => { if (parsed.length) onSave(parsed); }}
+              className="rounded-lg bg-accent px-3.5 py-2 text-[12.5px] font-semibold text-[#160a04] hover:bg-accent-2"
+            >
+              Add {parsed.length || ''} folder{parsed.length === 1 ? '' : 's'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex max-w-md gap-2">
       <input
@@ -585,9 +621,14 @@ function AddFolderComposer({ onSave, onCancel }: { onSave: (name: string) => voi
         placeholder="Folder name, e.g. “Franchises”"
         className="flex-1 rounded-lg border border-border bg-bg2 px-3 py-2 text-[13px] text-text outline-none focus:border-accent"
       />
+      {allowBulk && (
+        <button onClick={() => setBulk(true)} className="whitespace-nowrap text-[11.5px] text-muted hover:text-accent">
+          Add several →
+        </button>
+      )}
       <button onClick={onCancel} className="rounded-lg border border-border-strong px-3 py-2 text-[12.5px] text-muted hover:text-text">Cancel</button>
       <button
-        onClick={() => { if (name.trim()) onSave(name.trim()); }}
+        onClick={() => { if (name.trim()) onSave([name.trim()]); }}
         className="rounded-lg bg-accent px-3.5 py-2 text-[12.5px] font-semibold text-[#160a04] hover:bg-accent-2"
       >
         Add
