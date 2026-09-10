@@ -135,7 +135,7 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
           catalogs={catalogsByFolder[currentFolder.id] ?? []}
           onAddSource={(provider) => addSource(currentFolder.id, provider)}
           onDeleteSource={(id) => deleteSource(currentFolder.id, id)}
-          onAddCatalog={(catalogId, mediaType, genre) => addCatalog(currentFolder.id, catalogId, mediaType, genre)}
+          onAddCatalog={(catalogId, mediaType, genre, filterParams) => addCatalog(currentFolder.id, catalogId, mediaType, genre, null, filterParams)}
           onDeleteCatalog={(id) => deleteCatalog(currentFolder.id, id)}
           onSaveShape={(shape) => saveFolderArtwork(currentFolder.id, { tile_shape: shape })}
           onEditArtwork={() => setArtworkFolderId(currentFolder.id)}
@@ -685,17 +685,42 @@ function FolderSourceEditor({
   catalogs: FolderCatalog[];
   onAddSource: (provider: string) => void;
   onDeleteSource: (id: string) => void;
-  onAddCatalog: (catalogId: string, mediaType: string, genre: string | null) => void;
+  onAddCatalog: (catalogId: string, mediaType: string, genre: string | null, filterParams?: Record<string, string>) => void;
   onDeleteCatalog: (id: string) => void;
   onSaveShape: (shape: string) => void;
   onEditArtwork: () => void;
   languageIso?: string;
 }) {
-  const [kind, setKind] = useState<'catalog' | 'source'>('catalog');
+  const [kind, setKind] = useState<'catalog' | 'source' | 'filter'>('catalog');
   const [catalogId, setCatalogId] = useState('');
   const [mediaType, setMediaType] = useState('movie');
   const [provider, setProvider] = useState('');
   const [manualEntry, setManualEntry] = useState(false);
+  const [filterTitle, setFilterTitle] = useState('');
+  const [withKeywords, setWithKeywords] = useState('');
+  const [withGenres, setWithGenres] = useState('');
+  const [minVoteCount, setMinVoteCount] = useState('');
+  const [minVoteAverage, setMinVoteAverage] = useState('');
+  const [sortBy, setSortBy] = useState('popularity.desc');
+  const [filterMediaType, setFilterMediaType] = useState('movie');
+
+  function slugifyFilterTitle(s: string) {
+    return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+
+  function submitFilter() {
+    const title = filterTitle.trim();
+    if (!title) return;
+    const params: Record<string, string> = {};
+    if (withKeywords.trim()) params['with_keywords'] = withKeywords.trim();
+    if (withGenres.trim()) params['with_genres'] = withGenres.trim();
+    if (minVoteCount.trim()) params['vote_count.gte'] = minVoteCount.trim();
+    if (minVoteAverage.trim()) params['vote_average.gte'] = minVoteAverage.trim();
+    if (sortBy !== 'popularity.desc') params['sort_by'] = sortBy;
+    onAddCatalog(`tmdb.discover.custom.${slugifyFilterTitle(title)}`, filterMediaType, null, params);
+    setFilterTitle(''); setWithKeywords(''); setWithGenres('');
+    setMinVoteCount(''); setMinVoteAverage('');
+  }
 
   return (
     <div>
@@ -715,8 +740,14 @@ function FolderSourceEditor({
       <div className="mb-4 flex flex-col gap-1.5">
         {catalogs.map((c) => (
           <div key={c.id} className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3.5 py-2.5">
-            <span className="rounded border border-cyan-500/30 px-1.5 py-0.5 font-mono text-[9px] text-cyan-400">catalog</span>
-            <span className="flex-1 truncate text-[13px] text-text">{c.catalog_id}</span>
+            <span className={`rounded border px-1.5 py-0.5 font-mono text-[9px] ${
+              c.filter_params ? 'border-fuchsia-500/30 text-fuchsia-400' : 'border-cyan-500/30 text-cyan-400'
+            }`}>
+              {c.filter_params ? 'tmdb filter' : 'catalog'}
+            </span>
+            <span className="flex-1 truncate text-[13px] text-text">
+              {c.filter_params ? c.catalog_id.replace('tmdb.discover.custom.', '').replace(/-/g, ' ') : c.catalog_id}
+            </span>
             <span className="font-mono text-[10.5px] text-faint">{c.media_type}{c.genre ? ` · ${c.genre}` : ''}</span>
             <button onClick={() => onDeleteCatalog(c.id)} className="text-faint hover:text-red-400">×</button>
           </div>
@@ -735,17 +766,55 @@ function FolderSourceEditor({
 
       <div className="flex max-w-lg flex-col gap-2 rounded-xl border border-border-strong bg-surface p-3.5">
         <div className="inline-flex self-start rounded-lg border border-border-strong overflow-hidden">
-          {(['catalog', 'source'] as const).map((k) => (
+          {(['catalog', 'source', 'filter'] as const).map((k) => (
             <button
               key={k}
               onClick={() => setKind(k)}
               className={`px-3 py-1.5 text-[12px] transition-colors ${kind === k ? 'bg-accent-light text-accent' : 'text-muted'}`}
             >
-              {k === 'catalog' ? 'Addon catalog' : 'Curated / Trakt list'}
+              {k === 'catalog' ? 'Addon catalog' : k === 'source' ? 'Curated / Trakt list' : 'TMDB filter'}
             </button>
           ))}
         </div>
-        {kind === 'catalog' ? (
+        {kind === 'filter' ? (
+          <>
+            <input value={filterTitle} onChange={(e) => setFilterTitle(e.target.value)}
+              placeholder='Rail title, e.g. "Blockbuster Action"'
+              className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent" />
+            <div className="grid grid-cols-2 gap-2">
+              <input value={withKeywords} onChange={(e) => setWithKeywords(e.target.value)}
+                placeholder="with_keywords, e.g. 779"
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 font-mono text-[11.5px] text-text outline-none focus:border-accent" />
+              <input value={withGenres} onChange={(e) => setWithGenres(e.target.value)}
+                placeholder="with_genres, e.g. 28,53"
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 font-mono text-[11.5px] text-text outline-none focus:border-accent" />
+              <input value={minVoteCount} onChange={(e) => setMinVoteCount(e.target.value)}
+                placeholder="min vote count, e.g. 40"
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 font-mono text-[11.5px] text-text outline-none focus:border-accent" />
+              <input value={minVoteAverage} onChange={(e) => setMinVoteAverage(e.target.value)}
+                placeholder="min vote average, e.g. 7.2"
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 font-mono text-[11.5px] text-text outline-none focus:border-accent" />
+            </div>
+            <div className="flex gap-2">
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent">
+                <option value="popularity.desc">Sort: Popularity</option>
+                <option value="vote_average.desc">Sort: Vote average</option>
+                <option value="revenue.desc">Sort: Revenue</option>
+                <option value="primary_release_date.desc">Sort: Newest</option>
+              </select>
+              <select value={filterMediaType} onChange={(e) => setFilterMediaType(e.target.value)}
+                className="rounded-lg border border-border bg-bg2 px-2.5 py-1.5 text-[12.5px] text-text outline-none focus:border-accent">
+                <option value="movie">Movie</option>
+                <option value="series">Series</option>
+              </select>
+            </div>
+            <button onClick={submitFilter}
+              className="self-end rounded-lg bg-accent px-3.5 py-1.5 text-[12.5px] font-semibold text-[#160a04] hover:bg-accent-2">
+              Add
+            </button>
+          </>
+        ) : kind === 'catalog' ? (
           manualEntry ? (
             <>
               <input value={catalogId} onChange={(e) => setCatalogId(e.target.value)} placeholder="catalog id, e.g. trakt.anticipated.movies"

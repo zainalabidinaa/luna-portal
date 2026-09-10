@@ -119,6 +119,9 @@ export interface FolderCatalog {
   /** The installed_addons row this catalog was picked from. NULL for legacy
    *  admin-curated rows, or when the addon has since been deleted. */
   addon_id: string | null;
+  /** TMDB discover params. When set, apps fetch this row directly from TMDB
+   *  using these params instead of asking the connected addon. */
+  filter_params: Record<string, string> | null;
 }
 
 export interface LanguageHubRail {

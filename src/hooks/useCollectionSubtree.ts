@@ -142,9 +142,9 @@ export function useCollectionSubtree(collectionId: string | null) {
     setSourcesByFolder((p) => ({ ...p, [folderId]: (p[folderId] ?? []).filter((s) => s.id !== id) }));
   }
 
-  async function addCatalog(folderId: string, catalogId: string, mediaType: string, genre: string | null, addonId: string | null = null) {
+  async function addCatalog(folderId: string, catalogId: string, mediaType: string, genre: string | null, addonId: string | null = null, filterParams?: Record<string, string>) {
     const { data, error } = await supabase.from('folder_catalogs').insert({
-      folder_id: folderId, catalog_id: catalogId, media_type: mediaType, genre: genre ?? null, addon_id: addonId,
+      folder_id: folderId, catalog_id: catalogId, media_type: mediaType, genre: genre ?? null, addon_id: addonId, filter_params: filterParams ?? null,
     }).select().single();
     if (error) { console.error('Failed to add catalog:', error); return; }
     setCatalogsByFolder((p) => ({ ...p, [folderId]: [...(p[folderId] ?? []), data as FolderCatalog] }));
