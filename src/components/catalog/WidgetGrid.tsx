@@ -59,7 +59,7 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
   return (
     <div>
       <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]">
-        {items.map((item) => (
+        {items.map((item, index) => (
           <WidgetCard
             key={item.key}
             item={item}
@@ -70,6 +70,12 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
             onDelete={() => onDeleteCard(item)}
             onDragStart={() => setDragKey(item.key)}
             onDrop={() => { if (dragKey && dragKey !== item.key) onReorderCard(dragKey, item.key, 'before'); setDragKey(null); }}
+            // Explicit buttons alongside drag-and-drop — dragging a card
+            // precisely into a many-item grid is fiddly, especially on a
+            // trackpad; a plain click to nudge one slot at a time is a lot
+            // more reliable for "move this one thing up/down".
+            onMoveUp={index > 0 ? () => onReorderCard(item.key, items[index - 1].key, 'before') : undefined}
+            onMoveDown={index < items.length - 1 ? () => onReorderCard(item.key, items[index + 1].key, 'after') : undefined}
           />
         ))}
         <button
@@ -93,7 +99,7 @@ export function WidgetGrid({ items, folders, activeTab, mode, onSelectCollection
 }
 
 function WidgetCard({
-  item, childFolders, mode, isHomeTab, onClick, onDelete, onDragStart, onDrop,
+  item, childFolders, mode, isHomeTab, onClick, onDelete, onDragStart, onDrop, onMoveUp, onMoveDown,
 }: {
   item: WidgetCardItem;
   childFolders: Folder[];
@@ -103,6 +109,8 @@ function WidgetCard({
   onDelete: () => void;
   onDragStart: () => void;
   onDrop: () => void;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   const { collection } = item;
   const folderCount = childFolders.length;
@@ -173,6 +181,24 @@ function WidgetCard({
           <p className="mt-0.5 text-[12px] text-white/60">{subtitle}</p>
         </div>
       </button>
+      <div className="absolute bottom-2.5 left-2.5 z-[2] flex gap-1.5">
+        <button
+          onClick={(e) => { e.stopPropagation(); onMoveUp?.(); }}
+          disabled={!onMoveUp}
+          title="Move earlier"
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ↑
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onMoveDown?.(); }}
+          disabled={!onMoveDown}
+          title="Move later"
+          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-30"
+        >
+          ↓
+        </button>
+      </div>
       <button
         onClick={(e) => {
           e.stopPropagation();
