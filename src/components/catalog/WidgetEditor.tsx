@@ -153,6 +153,8 @@ export function WidgetEditor({ collectionId, onBack }: Props) {
       <FolderBody
         children={currentChildren}
         allFolders={folders}
+        catalogsByFolder={catalogsByFolder}
+        sourcesByFolder={sourcesByFolder}
         bodyView={bodyView}
         onChangeBodyView={setBodyView}
         onDrillIn={(id) => setPath((p) => [...p, id])}
@@ -288,10 +290,14 @@ function RootHeader({
 }
 
 function FolderBody({
-  children, allFolders, bodyView, onChangeBodyView, onDrillIn, onDelete, onReorder, onSaveShape, onEditArtwork,
+  children, allFolders, catalogsByFolder, sourcesByFolder, bodyView, onChangeBodyView, onDrillIn, onDelete, onReorder, onSaveShape, onEditArtwork,
 }: {
   children: Folder[];
   allFolders: Folder[];
+  /** Own source counts, shown inline so "does this folder actually have
+   *  anything?" never requires drilling in first to find out. */
+  catalogsByFolder: Record<string, FolderCatalog[]>;
+  sourcesByFolder: Record<string, FolderSource[]>;
   bodyView: 'rows' | 'list';
   onChangeBodyView: (v: 'rows' | 'list') => void;
   onDrillIn: (id: string) => void;
@@ -302,6 +308,11 @@ function FolderBody({
 }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const grandchildCount = (id: string) => allFolders.filter((f) => f.parent_folder_id === id).length;
+  const sourceCount = (id: string) => (catalogsByFolder[id]?.length ?? 0) + (sourcesByFolder[id]?.length ?? 0);
+  const contentLabel = (id: string) => {
+    const n = sourceCount(id);
+    return n > 0 ? `Content row · ${n} source${n === 1 ? '' : 's'}` : 'Empty — no sources yet';
+  };
 
   return (
     <div>
@@ -337,7 +348,7 @@ function FolderBody({
                 className="flex items-center gap-3 rounded-lg border border-border bg-surface px-3.5 py-2.5"
               >
                 <span className="flex-1 truncate text-[13.5px] text-text">{c.name}</span>
-                <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : 'Content row'}</span>
+                <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : contentLabel(c.id)}</span>
                 <TileShapePicker value={c.tile_shape} onChange={(shape) => onSaveShape(c.id, shape)} />
                 <button onClick={() => onEditArtwork(c.id)} className="rounded-md border border-border-strong px-2 py-1 font-mono text-[10.5px] text-muted hover:text-accent">
                   Art
@@ -378,7 +389,10 @@ function FolderBody({
                 >
                   {image && <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />}
                   <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.85))' }} />
-                  <span className="relative z-[1] font-body text-[12.5px] font-semibold leading-tight text-white">{c.name}</span>
+                  <div className="relative z-[1]">
+                    <p className="font-body text-[12.5px] font-semibold leading-tight text-white">{c.name}</p>
+                    <p className="mt-0.5 font-mono text-[9.5px] text-white/60">{contentLabel(c.id)}</p>
+                  </div>
                 </button>
                 <button
                   onClick={() => onEditArtwork(c.id)}
@@ -419,7 +433,7 @@ function FolderBody({
                 <div className="mb-2 flex items-baseline justify-between gap-3">
                   <button onClick={() => onDrillIn(c.id)} className="flex items-baseline gap-2 text-left hover:text-accent">
                     <span className="font-display text-[15px] font-bold text-text">{c.name}</span>
-                    <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : 'Content row'}</span>
+                    <span className="font-mono text-[10.5px] text-faint">{gc > 0 ? `Hub · ${gc} folders` : contentLabel(c.id)}</span>
                   </button>
                   <button onClick={() => onEditArtwork(c.id)} className="text-[11px] text-faint hover:text-accent">Art</button>
                   <button onClick={() => { if (confirm(`Delete "${c.name}"?`)) onDelete(c.id); }} className="text-[11px] text-faint hover:text-red-400">Delete</button>
