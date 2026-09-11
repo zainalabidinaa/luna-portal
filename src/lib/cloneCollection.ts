@@ -33,7 +33,7 @@ export async function cloneCollection(sourceCollectionId: string, targetTab: Wid
     enabled: source.enabled, status: source.status, display_section: source.display_section,
     show_on_home: false, show_ios_home: false, show_ios_movies: false, show_ios_series: false,
     show_mac_home: false, show_mac_movies: false, show_mac_series: false,
-    parent_collection_id: null, parent_folder_id: null, owner_profile_id: null,
+    parent_collection_id: null, parent_folder_id: null,
     ...visibility,
   }).select().single();
   if (error || !newRow) throw new Error(`Failed to clone "${source.name}": ${error?.message ?? 'insert returned no row'}`);
