@@ -4,7 +4,7 @@ import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
 import { WidgetGrid, TAB_FLAG, type WidgetTab, type WidgetCardItem } from '../../components/catalog/WidgetGrid';
 import { WidgetEditor } from '../../components/catalog/WidgetEditor';
-import type { Collection, Folder, HomePreset, HomePresetItem } from '../../types';
+import type { Collection, Folder, FolderCatalog, FolderSource, HomePreset, HomePresetItem } from '../../types';
 
 function slugify(name: string) {
   return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -137,6 +137,8 @@ export default function HomePresetsPage() {
     .map((c) => ({ key: c.id, kind: 'collection' as const, collection: c }));
 
   const presetTabItems: WidgetCardItem[] = presetItems
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order)
     .map((item): WidgetCardItem | null => {
       if (item.data_source.kind === 'browseHub') {
         const hub = item.data_source.hub === 'language' ? 'language' : 'genre';
@@ -182,33 +184,102 @@ export default function HomePresetsPage() {
     setShowAddPanel(true);
   }
 
+  // Deep-copies `sourceId`'s whole folder subtree (recursively) plus every
+  // folder's catalogs/sources into a brand-new, fully independent collection
+  // — mirrors useCollectionSubtree.importFolder's one-folder deep copy, just
+  // scoped to an entire widget instead of one folder within an existing one.
+  // "Add existing" used to just point a second home_preset_items row at the
+  // SAME collection, so editing sources from either tab edited one shared
+  // row ("connected" widgets); this makes every add a real, independent copy.
+  async function duplicateCollection(sourceId: string): Promise<Collection | null> {
+    const source = collections.find((c) => c.id === sourceId);
+    if (!source) return null;
+
+    const { data: colRow, error: colErr } = await supabase.from('collections').insert({
+      name: `${source.name} copy`,
+      view_mode: source.view_mode,
+      show_all_tab: source.show_all_tab,
+      pin_to_top: source.pin_to_top,
+      backdrop_image: source.backdrop_image,
+      focus_glow_enabled: source.focus_glow_enabled,
+      enabled: true,
+      status: 'draft',
+      sort_order: collections.length,
+    }).select().single();
+    if (colErr || !colRow) { alert(colErr?.message ?? 'Failed to duplicate widget'); return null; }
+    const created = colRow as Collection;
+
+    const { data: sourceFolderRows } = await supabase.from('folders').select('*').eq('collection_id', sourceId).order('sort_order');
+    const sourceFolders = (sourceFolderRows ?? []) as Folder[];
+    setCollections((p) => [...p, created]);
+    if (sourceFolders.length === 0) return created;
+
+    const sourceFolderIds = sourceFolders.map((f) => f.id);
+    const [{ data: srcCats }, { data: srcSrcs }] = await Promise.all([
+      supabase.from('folder_catalogs').select('*').in('folder_id', sourceFolderIds),
+      supabase.from('folder_sources').select('*').in('folder_id', sourceFolderIds),
+    ]);
+
+    async function insertCopy(f: Folder, parentFolderId: string | null): Promise<Folder | null> {
+      const { data, error } = await supabase.from('folders').insert({
+        collection_id: created.id, name: f.name, parent_folder_id: parentFolderId,
+        sort_order: f.sort_order, tile_shape: f.tile_shape, enabled: f.enabled,
+        cover_image: f.cover_image, hero_backdrop: f.hero_backdrop, title_logo: f.title_logo,
+        hero_video_url: f.hero_video_url, hide_title: f.hide_title,
+        focus_gif: f.focus_gif, focus_gif_enabled: f.focus_gif_enabled,
+      }).select().single();
+      if (error) { console.error('Failed to duplicate folder:', error); return null; }
+      return data as Folder;
+    }
+
+    const idMap = new Map<string, string>();
+    const newFolders: Folder[] = [];
+    for (const f of sourceFolders.filter((f) => !f.parent_folder_id)) {
+      const copy = await insertCopy(f, null);
+      if (copy) { idMap.set(f.id, copy.id); newFolders.push(copy); }
+    }
+    let remaining = sourceFolders.filter((f) => f.parent_folder_id);
+    while (remaining.length) {
+      const ready = remaining.filter((f) => f.parent_folder_id && idMap.has(f.parent_folder_id!));
+      if (ready.length === 0) break; // orphaned rows (shouldn't happen) — stop rather than loop forever
+      for (const f of ready) {
+        const copy = await insertCopy(f, idMap.get(f.parent_folder_id!)!);
+        if (copy) { idMap.set(f.id, copy.id); newFolders.push(copy); }
+      }
+      remaining = remaining.filter((f) => !idMap.has(f.id));
+    }
+
+    const catalogInserts = ((srcCats ?? []) as FolderCatalog[])
+      .filter((c) => idMap.has(c.folder_id))
+      .map((c) => ({ folder_id: idMap.get(c.folder_id)!, catalog_id: c.catalog_id, media_type: c.media_type, genre: c.genre, addon_id: c.addon_id, filter_params: c.filter_params }));
+    const sourceInserts = ((srcSrcs ?? []) as FolderSource[])
+      .filter((s) => idMap.has(s.folder_id))
+      .map((s) => ({ folder_id: idMap.get(s.folder_id)!, provider: s.provider, title: s.title, tmdb_id: s.tmdb_id, media_type: s.media_type, sort_order: s.sort_order }));
+    if (catalogInserts.length) await supabase.from('folder_catalogs').insert(catalogInserts);
+    if (sourceInserts.length) await supabase.from('folder_sources').insert(sourceInserts);
+
+    setFolders((p) => [...p, ...newFolders]);
+    return created;
+  }
+
   async function addExistingToPreset() {
     if (!selectedPresetId || !addExistingId) return;
+    const duplicate = await duplicateCollection(addExistingId);
+    if (!duplicate) return;
+
+    // The copy is brand new and independent, so it needs its own tab flag
+    // turned on for widgetTab — it doesn't inherit the source's flags.
+    const { ios, mac } = TAB_FLAG[widgetTab];
+    const { error: flagErr } = await supabase.from('collections').update({ [ios]: true, [mac]: true }).eq('id', duplicate.id);
+    if (!flagErr) setCollections((p) => p.map((c) => (c.id === duplicate.id ? { ...c, [ios]: true, [mac]: true } : c)));
+
     const { data, error } = await supabase.from('home_preset_items').insert({
       preset_id: selectedPresetId, tab: widgetTab,
-      data_source: { kind: 'collection', collectionId: addExistingId },
+      data_source: { kind: 'collection', collectionId: duplicate.id },
       media_type: null, style: 'standard', sort_order: presetItems.length,
     }).select().single();
     if (error) { alert(error.message); return; }
     setPresetItems((p) => [...p, data as HomePresetItem]);
-
-    // Keep the legacy per-tab flags in sync with the preset: a widget added
-    // to a preset's tab should also read as "on" for that tab everywhere
-    // else that still looks at the flags directly (portal grid, any profile
-    // with no active preset). Without this, the widget can be correctly
-    // curated into the preset yet still read as off everywhere else.
-    const existing = collections.find((c) => c.id === addExistingId);
-    if (existing) {
-      const { ios, mac } = TAB_FLAG[widgetTab];
-      if (!existing[ios] || !existing[mac]) {
-        const { error: flagErr } = await supabase.from('collections')
-          .update({ [ios]: true, [mac]: true }).eq('id', addExistingId);
-        if (!flagErr) {
-          setCollections((p) => p.map((c) => (c.id === addExistingId ? { ...c, [ios]: true, [mac]: true } : c)));
-        }
-      }
-    }
-
     setAddExistingId('');
     setShowAddPanel(false);
   }
@@ -424,10 +495,10 @@ export default function HomePresetsPage() {
             onChange={(e) => setAddExistingId(e.target.value)}
             className="min-w-0 flex-1 rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-text focus:border-accent focus:outline-none"
           >
-            <option value="">Choose an existing widget…</option>
+            <option value="">Choose a widget to copy…</option>
             {availableForPreset.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId}>+ Add existing</Button>
+          <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId}>+ Add a copy</Button>
           <span className="text-xs text-faint">or</span>
           <Button size="sm" variant="ghost" onClick={createAndAddToPreset}>+ Create new</Button>
           {widgetTab === 'home' && availableBrowseHubs.map((hub) => (
