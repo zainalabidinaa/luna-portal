@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
 import { useAutoScrollOnDrag } from '../../hooks/useAutoScrollOnDrag';
+import { cloneCollection } from '../../lib/cloneCollection';
 import type { Collection, Folder, FolderCatalog } from '../../types';
 
 const FUNCTION_URL = 'https://hvfsntdyowapjxobtyli.supabase.co/functions/v1/home-organizer';
@@ -457,9 +458,43 @@ export default function HomeLayoutPage() {
     }
   }
 
+  function tabOf(key: TabFlagKey): 'home' | 'movies' | 'series' {
+    if (key.endsWith('home')) return 'home';
+    if (key.endsWith('movies')) return 'movies';
+    return 'series';
+  }
+
+  function tabsVisibleOn(c: Collection): Set<'home' | 'movies' | 'series'> {
+    const tabs = new Set<'home' | 'movies' | 'series'>();
+    if (c.show_ios_home || c.show_mac_home) tabs.add('home');
+    if (c.show_ios_movies || c.show_mac_movies) tabs.add('movies');
+    if (c.show_ios_series || c.show_mac_series) tabs.add('series');
+    return tabs;
+  }
+
   async function toggleTabFlag(id: string, key: TabFlagKey, value: boolean) {
     const prev = collections.find((c) => c.id === id);
     if (!prev) return;
+
+    // Turning this flag ON for a tab the widget isn't already on, while
+    // it's already showing on some OTHER tab, would make one `collections`
+    // row (and its whole folder/source/catalog subtree) shared across
+    // tabs — editing it from either tab would edit both. Instead, clone
+    // it into a brand-new, independent widget scoped to just this tab
+    // (mirrors cloneCollection.ts's use in HomePresetsPage's "Add existing").
+    const currentTabs = tabsVisibleOn(prev);
+    if (value && currentTabs.size > 0 && !currentTabs.has(tabOf(key))) {
+      setLoading(true);
+      const clone = await cloneCollection(id, null);
+      if (clone) {
+        const clonePatch: Partial<Collection> = { [key]: true };
+        if (key === 'show_ios_home' || key === 'show_mac_home') clonePatch.show_on_home = true;
+        await supabase.from('collections').update(clonePatch).eq('id', clone.id);
+      }
+      await loadAll();
+      return;
+    }
+
     const patch: Partial<Collection> = { [key]: value };
     if (key === 'show_ios_home' || key === 'show_mac_home') {
       const iosHome = key === 'show_ios_home' ? value : prev.show_ios_home;
