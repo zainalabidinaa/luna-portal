@@ -191,6 +191,24 @@ export default function HomePresetsPage() {
     }).select().single();
     if (error) { alert(error.message); return; }
     setPresetItems((p) => [...p, data as HomePresetItem]);
+
+    // Keep the legacy per-tab flags in sync with the preset: a widget added
+    // to a preset's tab should also read as "on" for that tab everywhere
+    // else that still looks at the flags directly (portal grid, any profile
+    // with no active preset). Without this, the widget can be correctly
+    // curated into the preset yet still read as off everywhere else.
+    const existing = collections.find((c) => c.id === addExistingId);
+    if (existing) {
+      const { ios, mac } = TAB_FLAG[widgetTab];
+      if (!existing[ios] || !existing[mac]) {
+        const { error: flagErr } = await supabase.from('collections')
+          .update({ [ios]: true, [mac]: true }).eq('id', addExistingId);
+        if (!flagErr) {
+          setCollections((p) => p.map((c) => (c.id === addExistingId ? { ...c, [ios]: true, [mac]: true } : c)));
+        }
+      }
+    }
+
     setAddExistingId('');
     setShowAddPanel(false);
   }

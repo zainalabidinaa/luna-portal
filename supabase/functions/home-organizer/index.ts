@@ -16,11 +16,15 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
-    // Fetch all enabled collections ordered by sort_order
+    // Fetch all enabled, published collections ordered by sort_order.
+    // `status` is the publish gate (see Collection.status in the portal's
+    // types) — draft work must stay invisible everywhere until published,
+    // but nothing downstream of this function was actually filtering on it.
     const { data: collections, error: colErr } = await supabase
       .from('collections')
       .select('*')
       .eq('enabled', true)
+      .eq('status', 'published')
       .order('sort_order');
 
     if (colErr) throw colErr;

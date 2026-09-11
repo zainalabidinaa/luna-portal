@@ -435,6 +435,18 @@ function buildPayload(
         showAllTab: col.show_all_tab ?? false,
         focusGlowEnabled: col.focus_glow_enabled ?? false,
         backdropImageUrl: col.backdrop_image ?? null,
+        // Tab visibility, publish state, and display section all default to
+        // "invisible" on the collections table (false / 'draft' / null), so
+        // a re-import that omits them silently produces an invisible
+        // duplicate even though everything else about it looks identical.
+        showIosHome: col.show_ios_home ?? false,
+        showIosMovies: col.show_ios_movies ?? false,
+        showIosSeries: col.show_ios_series ?? false,
+        showMacHome: col.show_mac_home ?? false,
+        showMacMovies: col.show_mac_movies ?? false,
+        showMacSeries: col.show_mac_series ?? false,
+        status: col.status ?? 'draft',
+        displaySection: col.display_section ?? null,
       };
     });
 }

@@ -387,6 +387,19 @@ export default function CatalogPage() {
         pin_to_top: col.pinToTop ?? false,
         backdrop_image: col.backdropImageUrl ?? firstHero,
         sort_order: collections.length + ci,
+        // Round-trip tab visibility / publish state / display section when
+        // the pack carries them (our own export format); a pack from an
+        // older export or another source without these fields still lands
+        // as an intentionally invisible draft rather than silently omitting
+        // the columns and inheriting whatever the table default happens to be.
+        show_ios_home: col.showIosHome ?? false,
+        show_ios_movies: col.showIosMovies ?? false,
+        show_ios_series: col.showIosSeries ?? false,
+        show_mac_home: col.showMacHome ?? false,
+        show_mac_movies: col.showMacMovies ?? false,
+        show_mac_series: col.showMacSeries ?? false,
+        status: col.status ?? 'draft',
+        display_section: col.displaySection ?? null,
       }).select().single();
       if (colErr || !colRow) continue;
       const collectionId = (colRow as Collection).id;
