@@ -1,10 +1,31 @@
 // src/components/catalog/CollectionSettings.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { cloneCollection } from '../../lib/cloneCollection';
 import { Button } from '../ui/Button';
 import type { Collection, Folder, FolderCatalog, FolderSource } from '../../types';
 
 const VIEW_MODES = ['FOLLOW_LAYOUT', 'GRID', 'LIST'];
+
+type TabFlagKey =
+  | 'show_ios_home' | 'show_ios_movies' | 'show_ios_series'
+  | 'show_mac_home' | 'show_mac_movies' | 'show_mac_series';
+const TAB_FLAG_KEYS: TabFlagKey[] = [
+  'show_ios_home', 'show_ios_movies', 'show_ios_series',
+  'show_mac_home', 'show_mac_movies', 'show_mac_series',
+];
+function tabOf(key: TabFlagKey): 'home' | 'movies' | 'series' {
+  if (key.endsWith('home')) return 'home';
+  if (key.endsWith('movies')) return 'movies';
+  return 'series';
+}
+function tabsVisibleOn(c: Collection): Set<'home' | 'movies' | 'series'> {
+  const tabs = new Set<'home' | 'movies' | 'series'>();
+  if (c.show_ios_home || c.show_mac_home) tabs.add('home');
+  if (c.show_ios_movies || c.show_mac_movies) tabs.add('movies');
+  if (c.show_ios_series || c.show_mac_series) tabs.add('series');
+  return tabs;
+}
 
 interface Props {
   collection: Collection;
@@ -44,6 +65,39 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
   async function handleSave() {
     setSaving(true);
     try {
+      // Turning on a tab this collection wasn't already visible on, while
+      // it's already visible on some OTHER tab, would leave one
+      // `collections` row (and its whole folder/source/catalog subtree)
+      // shared across tabs — editing it from either tab would edit both.
+      // Split any such newly-added tab off into its own independent clone
+      // instead (mirrors HomeLayoutPage.tsx's toggleTabFlag).
+      const currentTabs = tabsVisibleOn(collection);
+      const newTabs = new Set<'home' | 'movies' | 'series'>();
+      if (currentTabs.size > 0) {
+        for (const key of TAB_FLAG_KEYS) {
+          if (draft[key] && !collection[key]) {
+            const t = tabOf(key);
+            if (!currentTabs.has(t)) newTabs.add(t);
+          }
+        }
+      }
+
+      const adjustedFlags = {} as Record<TabFlagKey, boolean>;
+      for (const key of TAB_FLAG_KEYS) {
+        adjustedFlags[key] = newTabs.has(tabOf(key)) ? collection[key] : draft[key];
+      }
+
+      for (const t of newTabs) {
+        const clone = await cloneCollection(collection.id, null);
+        if (!clone) continue;
+        const clonePatch: Partial<Collection> = {};
+        for (const key of TAB_FLAG_KEYS) {
+          if (tabOf(key) === t) clonePatch[key] = draft[key];
+        }
+        if (t === 'home') clonePatch.show_on_home = Boolean(draft.show_ios_home || draft.show_mac_home);
+        await supabase.from('collections').update(clonePatch).eq('id', clone.id);
+      }
+
       await onSave({
         name: draft.name.trim() || collection.name,
         backdrop_image: draft.backdrop_image || null,
@@ -52,16 +106,20 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
         focus_glow_enabled: draft.focus_glow_enabled,
         pin_to_top: draft.pin_to_top,
         enabled: draft.enabled,
-        show_on_home: draft.show_ios_home || draft.show_mac_home,
-        show_ios_home: draft.show_ios_home,
-        show_ios_movies: draft.show_ios_movies,
-        show_ios_series: draft.show_ios_series,
-        show_mac_home: draft.show_mac_home,
-        show_mac_movies: draft.show_mac_movies,
-        show_mac_series: draft.show_mac_series,
+        show_on_home: adjustedFlags.show_ios_home || adjustedFlags.show_mac_home,
+        show_ios_home: adjustedFlags.show_ios_home,
+        show_ios_movies: adjustedFlags.show_ios_movies,
+        show_ios_series: adjustedFlags.show_ios_series,
+        show_mac_home: adjustedFlags.show_mac_home,
+        show_mac_movies: adjustedFlags.show_mac_movies,
+        show_mac_series: adjustedFlags.show_mac_series,
         status: draft.status,
         display_section: draft.display_section,
       });
+
+      if (newTabs.size > 0) {
+        alert(`"${draft.name}" was already visible on another tab, so ${newTabs.size} newly-checked tab${newTabs.size === 1 ? '' : 's'} got its own independent copy instead of sharing this widget.`);
+      }
     } finally {
       setSaving(false);
     }
