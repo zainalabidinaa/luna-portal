@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { PublicRoute, UserRoute, AuthRoute, AdminRoute } from './components/layout/RouteGuards';
 import LandingPage from './routes/public/LandingPage';
@@ -14,7 +14,6 @@ import AddonsPage from './routes/user/AddonsPage';
 import MyCollectionsPage from './routes/user/MyCollectionsPage';
 import BillingPage from './routes/user/BillingPage';
 import CatalogPage from './routes/admin/CatalogPage';
-import HomeLayoutPage from './routes/admin/HomeLayoutPage';
 import HomePresetsPage from './routes/admin/HomePresetsPage';
 import TemplatesPage from './routes/admin/TemplatesPage';
 import UsersPage from './routes/admin/UsersPage';
@@ -46,7 +45,9 @@ export default function App() {
           <Route path="/billing" element={<AuthRoute><BillingPage /></AuthRoute>} />
 
           {/* Admin */}
-          <Route path="/admin/home" element={<AdminRoute><HomeLayoutPage /></AdminRoute>} />
+          {/* Home Layout was removed — its unprotected tab-visibility checkboxes let one
+              widget end up shared across Home/Movies/Series. Widgets (below) replaces it. */}
+          <Route path="/admin/home" element={<Navigate to="/admin/home-presets" replace />} />
           <Route path="/admin/home-presets" element={<AdminRoute><HomePresetsPage /></AdminRoute>} />
           <Route path="/admin/catalog" element={<AdminRoute><CatalogPage /></AdminRoute>} />
           <Route path="/admin/templates" element={<AdminRoute><TemplatesPage /></AdminRoute>} />

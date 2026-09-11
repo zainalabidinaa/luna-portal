@@ -70,7 +70,7 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
       // `collections` row (and its whole folder/source/catalog subtree)
       // shared across tabs — editing it from either tab would edit both.
       // Split any such newly-added tab off into its own independent clone
-      // instead (mirrors HomeLayoutPage.tsx's toggleTabFlag).
+      // instead (mirrors HomePresetsPage.tsx's "Add existing" flow).
       const currentTabs = tabsVisibleOn(collection);
       const newTabs = new Set<'home' | 'movies' | 'series'>();
       if (currentTabs.size > 0) {
@@ -88,8 +88,13 @@ export function CollectionSettings({ collection, folders, allCollections, onSave
       }
 
       for (const t of newTabs) {
-        const clone = await cloneCollection(collection.id, null);
-        if (!clone) continue;
+        let clone: Collection;
+        try {
+          clone = await cloneCollection(collection.id, null);
+        } catch (e: any) {
+          alert(`Couldn't split "${draft.name}" onto its own copy for the ${t} tab: ${e.message}\n\nNothing was saved — fix the issue and try again.`);
+          return;
+        }
         const clonePatch: Partial<Collection> = {};
         for (const key of TAB_FLAG_KEYS) {
           if (tabOf(key) === t) clonePatch[key] = draft[key];

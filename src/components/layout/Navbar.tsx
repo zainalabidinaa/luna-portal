@@ -69,9 +69,6 @@ export function Navbar() {
           {isAdmin && (
             <>
               <span className="mx-2 h-4 w-px flex-none bg-border" />
-              <NavLink to="/admin/home" className={navClass}>
-                {({ isActive }) => (<>Home Layout<ActiveBar show={isActive} /></>)}
-              </NavLink>
               <NavLink to="/admin/home-presets" className={navClass}>
                 {({ isActive }) => (<>Widgets<ActiveBar show={isActive} /></>)}
               </NavLink>

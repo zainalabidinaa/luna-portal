@@ -193,8 +193,13 @@ export default function HomePresetsPage() {
     if (!selectedPresetId || !addExistingId) return;
     setAddingExisting(true);
     try {
-      const clone = await cloneCollection(addExistingId, widgetTab);
-      if (!clone) { alert('Failed to copy that widget.'); return; }
+      let clone: Collection;
+      try {
+        clone = await cloneCollection(addExistingId, widgetTab);
+      } catch (e: any) {
+        alert(`Failed to copy that widget: ${e.message}`);
+        return;
+      }
       setCollections((p) => [...p, clone]);
       const { data, error } = await supabase.from('home_preset_items').insert({
         preset_id: selectedPresetId, tab: widgetTab,
@@ -221,6 +226,7 @@ export default function HomePresetsPage() {
     try {
       let presetFixed = 0;
       let flagFixed = 0;
+      const errors: string[] = [];
 
       // 1) home_preset_items: several items (any preset, any tab) pointing
       // at the same collections.id.
@@ -239,12 +245,18 @@ export default function HomePresetsPage() {
         // First occurrence keeps the original collection; every other
         // occurrence gets its own clone.
         for (const item of group.slice(1)) {
-          const clone = await cloneCollection(group[0].data_source.collectionId!, item.tab);
-          if (!clone) { console.error('repairLinkedWidgets: clone failed for preset item', item); continue; }
+          let clone: Collection;
+          try {
+            clone = await cloneCollection(group[0].data_source.collectionId!, item.tab);
+          } catch (e: any) {
+            console.error('repairLinkedWidgets: clone failed for preset item', item, e);
+            errors.push(e.message);
+            continue;
+          }
           const { error: updErr } = await supabase.from('home_preset_items')
             .update({ data_source: { kind: 'collection', collectionId: clone.id } })
             .eq('id', item.id);
-          if (updErr) { console.error('repairLinkedWidgets: failed to repoint preset item', item, updErr); continue; }
+          if (updErr) { console.error('repairLinkedWidgets: failed to repoint preset item', item, updErr); errors.push(updErr.message); continue; }
           presetFixed++;
         }
       }
@@ -266,26 +278,39 @@ export default function HomePresetsPage() {
         // flags onto the clone instead.
         const patch: Record<string, boolean> = {};
         for (const t of onTabs.slice(1)) {
-          const clone = await cloneCollection(c.id, t);
-          if (!clone) { console.error('repairLinkedWidgets: clone failed for collection', c); continue; }
+          try {
+            await cloneCollection(c.id, t);
+          } catch (e: any) {
+            console.error('repairLinkedWidgets: clone failed for collection', c, e);
+            errors.push(e.message);
+            continue;
+          }
           patch[TAB_FLAG[t].ios] = false;
           patch[TAB_FLAG[t].mac] = false;
           flagFixed++;
         }
         if (Object.keys(patch).length) {
           const { error: patchErr } = await supabase.from('collections').update(patch).eq('id', c.id);
-          if (patchErr) console.error('repairLinkedWidgets: failed to clear flags on original', c, patchErr);
+          if (patchErr) { console.error('repairLinkedWidgets: failed to clear flags on original', c, patchErr); errors.push(patchErr.message); }
         }
       }
+
+      const presetDupNames = presetDupGroups.map((g) => {
+        const name = allCollections.find((c) => c.id === g[0].data_source.collectionId)?.name ?? g[0].data_source.collectionId;
+        return `${name} (${g.map((i) => i.tab).join('/')})`;
+      });
 
       console.log('repairLinkedWidgets: scanned', allItems.length, 'preset items,', allCollections.length, 'collections.');
       console.log('repairLinkedWidgets: preset-item duplicate groups:', presetDupGroups.map((g) => ({ collectionId: g[0].data_source.collectionId, tabs: g.map((i) => i.tab) })));
       console.log('repairLinkedWidgets: collections visible on 2+ tabs:', flagDupNames);
+      if (errors.length) console.error('repairLinkedWidgets: errors', errors);
 
       alert(
         `Scanned ${allCollections.length} widgets and ${allItems.length} preset entries.\n` +
         `Split ${presetFixed} preset widget${presetFixed === 1 ? '' : 's'} and ${flagFixed} tab-visibility widget${flagFixed === 1 ? '' : 's'} into independent copies.\n` +
-        (flagDupNames.length ? `Widgets found on 2+ tabs: ${flagDupNames.join(', ')}` : 'No widget was flagged visible on 2+ tabs at once.')
+        (presetDupNames.length ? `Preset widgets found shared across tabs: ${presetDupNames.join(', ')}\n` : '') +
+        (flagDupNames.length ? `Widgets found on 2+ tabs: ${flagDupNames.join(', ')}\n` : (presetDupNames.length ? '' : 'No widget was flagged visible on 2+ tabs at once.\n')) +
+        (errors.length ? `\n${errors.length} error(s), first: ${errors[0]}` : '')
       );
       await Promise.all([
         supabase.from('collections').select('*').order('sort_order').then(({ data }) => setCollections((data as Collection[]) ?? [])),

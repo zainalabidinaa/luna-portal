@@ -16,9 +16,9 @@ import { TAB_FLAG } from '../components/catalog/WidgetGrid';
  * row) — it never inherits the source's own tab-visibility flags, since
  * those describe the source widget's placement, not the copy's.
  */
-export async function cloneCollection(sourceCollectionId: string, targetTab: WidgetTab | null): Promise<Collection | null> {
-  const { data: sourceRow } = await supabase.from('collections').select('*').eq('id', sourceCollectionId).single();
-  if (!sourceRow) return null;
+export async function cloneCollection(sourceCollectionId: string, targetTab: WidgetTab | null): Promise<Collection> {
+  const { data: sourceRow, error: fetchErr } = await supabase.from('collections').select('*').eq('id', sourceCollectionId).single();
+  if (fetchErr || !sourceRow) throw new Error(`Failed to load source collection ${sourceCollectionId}: ${fetchErr?.message ?? 'not found'}`);
   const source = sourceRow as Collection;
 
   const { count } = await supabase.from('collections').select('*', { count: 'exact', head: true });
@@ -36,7 +36,7 @@ export async function cloneCollection(sourceCollectionId: string, targetTab: Wid
     parent_collection_id: null, parent_folder_id: null, owner_profile_id: null,
     ...visibility,
   }).select().single();
-  if (error || !newRow) { console.error('Failed to clone collection:', error); return null; }
+  if (error || !newRow) throw new Error(`Failed to clone "${source.name}": ${error?.message ?? 'insert returned no row'}`);
   const clone = newRow as Collection;
 
   const { data: rootFolderRows } = await supabase.from('folders').select('*').eq('collection_id', sourceCollectionId).is('parent_folder_id', null).order('sort_order');
