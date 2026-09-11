@@ -4,6 +4,7 @@ import { AppShell } from '../../components/layout/AppShell';
 import { Button } from '../../components/ui/Button';
 import { WidgetGrid, TAB_FLAG, type WidgetTab, type WidgetCardItem } from '../../components/catalog/WidgetGrid';
 import { WidgetEditor } from '../../components/catalog/WidgetEditor';
+import { cloneCollection } from '../../lib/cloneCollection';
 import type { Collection, Folder, HomePreset, HomePresetItem } from '../../types';
 
 function slugify(name: string) {
@@ -51,6 +52,8 @@ export default function HomePresetsPage() {
   const [showPresetPanel, setShowPresetPanel] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [addExistingId, setAddExistingId] = useState('');
+  const [addingExisting, setAddingExisting] = useState(false);
+  const [repairing, setRepairing] = useState(false);
 
   const mode: 'all' | 'preset' = selectedPresetId ? 'preset' : 'all';
   const selectedPreset = presets.find((p) => p.id === selectedPresetId) ?? null;
@@ -182,17 +185,99 @@ export default function HomePresetsPage() {
     setShowAddPanel(true);
   }
 
+  // "Add existing" deliberately clones the source widget rather than
+  // reusing its collection id — otherwise this tab's card and the source
+  // tab's card would point at the same `collections` row, and editing
+  // either one would edit both. See src/lib/cloneCollection.ts.
   async function addExistingToPreset() {
     if (!selectedPresetId || !addExistingId) return;
-    const { data, error } = await supabase.from('home_preset_items').insert({
-      preset_id: selectedPresetId, tab: widgetTab,
-      data_source: { kind: 'collection', collectionId: addExistingId },
-      media_type: null, style: 'standard', sort_order: presetItems.length,
-    }).select().single();
-    if (error) { alert(error.message); return; }
-    setPresetItems((p) => [...p, data as HomePresetItem]);
-    setAddExistingId('');
-    setShowAddPanel(false);
+    setAddingExisting(true);
+    try {
+      const clone = await cloneCollection(addExistingId, widgetTab);
+      if (!clone) { alert('Failed to copy that widget.'); return; }
+      setCollections((p) => [...p, clone]);
+      const { data, error } = await supabase.from('home_preset_items').insert({
+        preset_id: selectedPresetId, tab: widgetTab,
+        data_source: { kind: 'collection', collectionId: clone.id },
+        media_type: null, style: 'standard', sort_order: presetItems.length,
+      }).select().single();
+      if (error) { alert(error.message); return; }
+      setPresetItems((p) => [...p, data as HomePresetItem]);
+      setAddExistingId('');
+      setShowAddPanel(false);
+    } finally {
+      setAddingExisting(false);
+    }
+  }
+
+  // One-time repair for widgets that ended up shared across tabs before
+  // "Add existing" started cloning (see cloneCollection.ts) — every
+  // occurrence is kept (nothing is deleted or hidden), each additional
+  // occurrence just gets its own independent `collections` row so editing
+  // one no longer edits the others.
+  async function repairLinkedWidgets() {
+    if (!confirm('Scan every preset and tab for widgets that still share the same underlying widget, and give each occurrence its own independent copy? All widgets stay — only their linkage changes.')) return;
+    setRepairing(true);
+    try {
+      let presetFixed = 0;
+      let flagFixed = 0;
+
+      // 1) home_preset_items: several items (any preset, any tab) pointing
+      // at the same collections.id.
+      const { data: allItemsRaw } = await supabase.from('home_preset_items').select('*').order('preset_id').order('tab').order('sort_order');
+      const allItems = (allItemsRaw ?? []) as HomePresetItem[];
+      const byCollection = new Map<string, HomePresetItem[]>();
+      for (const item of allItems) {
+        const cid = item.data_source.kind === 'collection' ? item.data_source.collectionId : undefined;
+        if (!cid) continue;
+        const group = byCollection.get(cid);
+        if (group) group.push(item); else byCollection.set(cid, [item]);
+      }
+      for (const group of byCollection.values()) {
+        if (group.length <= 1) continue;
+        // First occurrence keeps the original collection; every other
+        // occurrence gets its own clone.
+        for (const item of group.slice(1)) {
+          const clone = await cloneCollection(group[0].data_source.collectionId!, item.tab);
+          if (!clone) continue;
+          await supabase.from('home_preset_items')
+            .update({ data_source: { kind: 'collection', collectionId: clone.id } })
+            .eq('id', item.id);
+          presetFixed++;
+        }
+      }
+
+      // 2) "All Widgets" tab-visibility flags: one collection flagged
+      // visible on more than one tab at once (e.g. show_ios_home AND
+      // show_ios_movies both true).
+      const { data: allCollectionsRaw } = await supabase.from('collections').select('*').order('sort_order');
+      const allCollections = (allCollectionsRaw ?? []) as Collection[];
+      const tabs: WidgetTab[] = ['home', 'movies', 'series'];
+      for (const c of allCollections) {
+        const onTabs = tabs.filter((t) => Boolean(c[TAB_FLAG[t].ios]) || Boolean(c[TAB_FLAG[t].mac]));
+        if (onTabs.length <= 1) continue;
+        // Keep the first tab on the original row; clone one new,
+        // independent collection per additional tab and move that tab's
+        // flags onto the clone instead.
+        const patch: Record<string, boolean> = {};
+        for (const t of onTabs.slice(1)) {
+          const clone = await cloneCollection(c.id, t);
+          if (!clone) continue;
+          patch[TAB_FLAG[t].ios] = false;
+          patch[TAB_FLAG[t].mac] = false;
+          flagFixed++;
+        }
+        if (Object.keys(patch).length) await supabase.from('collections').update(patch).eq('id', c.id);
+      }
+
+      alert(`Done. Split ${presetFixed} preset widget${presetFixed === 1 ? '' : 's'} and ${flagFixed} tab-visibility widget${flagFixed === 1 ? '' : 's'} into independent copies.`);
+      await Promise.all([
+        supabase.from('collections').select('*').order('sort_order').then(({ data }) => setCollections((data as Collection[]) ?? [])),
+        selectedPresetId ? loadPresetItems(selectedPresetId, widgetTab) : Promise.resolve(),
+      ]);
+    } finally {
+      setRepairing(false);
+    }
   }
 
   // Which of "Browse by Genre"/"Browse by Language" this preset's Home list
@@ -306,7 +391,12 @@ export default function HomePresetsPage() {
               : <>Editing <span className="text-accent">{selectedPreset?.name}</span>'s widget list for this tab. Curated home layouts for Premium/Friends & Family — only <span className="text-accent">active</span> presets show up in the app.</>}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={createPreset}>+ New Preset</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={repairLinkedWidgets} disabled={repairing}>
+            {repairing ? 'Splitting…' : 'Fix linked widgets'}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={createPreset}>+ New Preset</Button>
+        </div>
       </div>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -409,7 +499,9 @@ export default function HomePresetsPage() {
             <option value="">Choose an existing widget…</option>
             {availableForPreset.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId}>+ Add existing</Button>
+          <Button size="sm" onClick={addExistingToPreset} disabled={!addExistingId || addingExisting}>
+            {addingExisting ? 'Copying…' : '+ Add existing'}
+          </Button>
           <span className="text-xs text-faint">or</span>
           <Button size="sm" variant="ghost" onClick={createAndAddToPreset}>+ Create new</Button>
           {widgetTab === 'home' && availableBrowseHubs.map((hub) => (
