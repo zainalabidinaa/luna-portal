@@ -220,13 +220,26 @@ export default function HomePresetsPage() {
   // occurrence is kept (nothing is deleted or hidden), each additional
   // occurrence just gets its own independent `collections` row so editing
   // one no longer edits the others.
+  //
+  // Scoped to just "Latest" and "Genres" per explicit request — remove
+  // NAME_FILTER (and the two .filter() calls that use it) to widen this
+  // back to every shared widget once those are confirmed fixed.
+  const NAME_FILTER = /latest|genre/i;
+
   async function repairLinkedWidgets() {
-    if (!confirm('Scan every preset and tab for widgets that still share the same underlying widget, and give each occurrence its own independent copy? All widgets stay — only their linkage changes.')) return;
+    if (!confirm('Scan for the "Latest" and "Genres" widgets specifically, and give each tab its own independent copy? All widgets stay — only their linkage changes.')) return;
     setRepairing(true);
     try {
       let presetFixed = 0;
       let flagFixed = 0;
       const errors: string[] = [];
+
+      // Fetched up front so preset-item duplicates (below) can be
+      // filtered by their collection's name too.
+      const { data: allCollectionsRaw, error: colsErr } = await supabase.from('collections').select('*').order('sort_order');
+      if (colsErr) console.error('repairLinkedWidgets: failed to fetch collections', colsErr);
+      const allCollections = (allCollectionsRaw ?? []) as Collection[];
+      const collectionById = new Map(allCollections.map((c) => [c.id, c]));
 
       // 1) home_preset_items: several items (any preset, any tab) pointing
       // at the same collections.id.
@@ -240,7 +253,9 @@ export default function HomePresetsPage() {
         const group = byCollection.get(cid);
         if (group) group.push(item); else byCollection.set(cid, [item]);
       }
-      const presetDupGroups = [...byCollection.values()].filter((g) => g.length > 1);
+      const presetDupGroups = [...byCollection.values()]
+        .filter((g) => g.length > 1)
+        .filter((g) => NAME_FILTER.test(collectionById.get(g[0].data_source.collectionId!)?.name ?? ''));
       for (const group of presetDupGroups) {
         // First occurrence keeps the original collection; every other
         // occurrence gets its own clone.
@@ -264,12 +279,10 @@ export default function HomePresetsPage() {
       // 2) "All Widgets" tab-visibility flags: one collection flagged
       // visible on more than one tab at once (e.g. show_ios_home AND
       // show_ios_movies both true).
-      const { data: allCollectionsRaw, error: colsErr } = await supabase.from('collections').select('*').order('sort_order');
-      if (colsErr) console.error('repairLinkedWidgets: failed to fetch collections', colsErr);
-      const allCollections = (allCollectionsRaw ?? []) as Collection[];
       const tabs: WidgetTab[] = ['home', 'movies', 'series'];
       const flagDupNames: string[] = [];
       for (const c of allCollections) {
+        if (!NAME_FILTER.test(c.name)) continue;
         const onTabs = tabs.filter((t) => Boolean(c[TAB_FLAG[t].ios]) || Boolean(c[TAB_FLAG[t].mac]));
         if (onTabs.length <= 1) continue;
         flagDupNames.push(`${c.name} (${onTabs.join('/')})`);
